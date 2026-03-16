@@ -108,9 +108,9 @@ export default function Dashboard() {
         if (!row) continue;
         if (row[5] === 'por $' && row[7]) declarado = +row[7] || 0;
         if (i === rows.length - 1) {
-          for (let j = row.length - 1; j >= 0; j--) {
-            if (row[j] && typeof row[j] === 'number' && row[j] > 100) { totalReal = row[j]; break; }
-          }
+          const colM = (typeof row[12] === 'number' && row[12] > 100) ? row[12] : 0;
+          const colT = (typeof row[19] === 'number' && row[19] > 100) ? row[19] : 0;
+          totalReal = Math.max(colM, colT);
         }
         if (row[12] && typeof row[12] === 'string' && row[12].includes('réd')) {
           const m = row[12].match(/réd\.N[ºo°]\s*(\d+)/i);
