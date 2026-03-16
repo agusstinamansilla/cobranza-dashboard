@@ -79,12 +79,12 @@ export default function Dashboard() {
 
   async function saveTabla(t: TablaRow[]) {
     await saveSheet('Tabla', ['Fecha', 'Cobro', 'Sobrante', 'Reverso', 'Reintegros', 'Neto'],
-      t.map(r => [r.fecha, r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
+      t.map(r => [String(r.fecha), r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
     await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo'],
-      todos.map(r => [r.fecha, r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo]));
+      todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo]));
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -590,3 +590,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
