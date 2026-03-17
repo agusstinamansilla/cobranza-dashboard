@@ -14,6 +14,8 @@ const fmtDFull = (s: string) =>
 type TablaRow = { fecha: string; cobro: number; sobrante: number; reverso: number; reintegros: number; neto: number };
 type CobroRow = { fecha: string; monto: number; producto: string; forma: string; credito: number; mora: string; periodo: string; banco: string; tipo: string };
 type SimpleRow = { fecha: string; monto: number };
+// Mapa de crédito → datos de la base
+type BaseMap = Map<number, { producto: string; forma: string; mora: string; periodo: string; banco: string; tipo: string }>;
 
 const VTO = 232751387;
 
@@ -22,6 +24,7 @@ export default function Dashboard() {
   const [cobros, setCobros] = useState<CobroRow[]>([]);
   const [reversos, setReversos] = useState<SimpleRow[]>([]);
   const [reintegros, setReintegros] = useState<SimpleRow[]>([]);
+  const [baseMap, setBaseMap] = useState<BaseMap>(new Map());
   const [activeTab, setActiveTab] = useState('tabla');
   const [fechaSel, setFechaSel] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,6 +90,122 @@ export default function Dashboard() {
       todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo]));
   }
 
+  // ─── Carga de Base mensual (Base_a_subir) ────────────────────────────────
+  // Columnas: Nombre(0) Documento(1) Plan(2) Credito(3) Estado(4) Banco(5)
+  //           Mora(6) Primario/Renovacion(7) Periodo(8) Producto conjunto(9)
+  function handleBase(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const wb = XLSX.read(new Uint8Array(ev.target!.result as ArrayBuffer), { type: 'array' });
+      const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+      const map: BaseMap = new Map();
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const cred = typeof row[3] === 'number' ? row[3] : parseInt(row[3]);
+        if (!cred || isNaN(cred)) continue;
+        map.set(cred, {
+          producto: row[9] || '',
+          forma: '',          // la forma viene del archivo diario (COMERCIO)
+          mora: row[6] || '',
+          periodo: row[8] || '',
+          banco: row[5] || '',
+          tipo: row[7] || '', // Primario/Renovacion
+        });
+      }
+      setBaseMap(map);
+      setError('');
+      alert(`Base cargada: ${map.size} créditos`);
+      e.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ─── Carga histórica inicial (Base_Marzo) ────────────────────────────────
+  // Lee hoja "Tabla" y hoja "Cobro" del archivo y los sube a Google Sheets
+  function handleBaseMes(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const wb = XLSX.read(new Uint8Array(ev.target!.result as ArrayBuffer), { type: 'array' });
+
+      // ── Hoja Tabla ──
+      let newTabla: TablaRow[] = [];
+      const tablaSheet = wb.Sheets['Tabla'];
+      if (tablaSheet) {
+        const tRows: any[][] = XLSX.utils.sheet_to_json(tablaSheet, { header: 1, defval: null });
+        newTabla = tRows.slice(1)
+          .filter(r => r && r[0])
+          .map(r => {
+            // fecha puede venir como Date serial o string
+            let fecha = '';
+            if (r[0] instanceof Date) {
+              fecha = r[0].toISOString().slice(0, 10);
+            } else if (typeof r[0] === 'number') {
+              // Excel serial date
+              const d = XLSX.SSF.parse_date_code(r[0]);
+              fecha = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+            } else {
+              fecha = String(r[0]).slice(0, 10);
+            }
+            return {
+              fecha,
+              cobro: +r[1] || 0,
+              sobrante: +r[2] || 0,
+              reverso: +r[3] || 0,
+              reintegros: +r[4] || 0,
+              neto: +r[5] || 0,
+            };
+          });
+      }
+
+      // ── Hoja Cobro ──
+      let newCobros: CobroRow[] = [];
+      const cobroSheet = wb.Sheets['Cobro'];
+      if (cobroSheet) {
+        // Columnas: Fecha(0) Monto(1) Producto(2) Forma(3) Credito(4) Mora(5) Periodo(6) Banco(7) Primario/Renovacion(8)
+        const cRows: any[][] = XLSX.utils.sheet_to_json(cobroSheet, { header: 1, defval: null });
+        newCobros = cRows.slice(1)
+          .filter(r => r && r[0] && r[4])
+          .map(r => {
+            let fecha = '';
+            if (r[0] instanceof Date) {
+              fecha = r[0].toISOString().slice(0, 10);
+            } else if (typeof r[0] === 'number') {
+              const d = XLSX.SSF.parse_date_code(r[0]);
+              fecha = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+            } else {
+              fecha = String(r[0]).slice(0, 10);
+            }
+            return {
+              fecha,
+              monto: +r[1] || 0,
+              producto: r[2] || '',
+              forma: r[3] || '',
+              credito: +r[4] || 0,
+              mora: r[5] || '',
+              periodo: r[6] || '',
+              banco: r[7] || '',
+              tipo: r[8] || '',
+            };
+          });
+      }
+
+      setTabla(newTabla);
+      setCobros(newCobros);
+      await saveTabla(newTabla);
+      await saveCobrosData(newCobros);
+      setError('');
+      alert(`Base histórica cargada: ${newTabla.length} días, ${newCobros.length} cobros`);
+      e.target.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ─── Carga diaria (archivo del día) ─────────────────────────────────────
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -100,30 +219,56 @@ export default function Dashboard() {
     reader.onload = async (ev) => {
       const wb = XLSX.read(new Uint8Array(ev.target!.result as ArrayBuffer), { type: 'array' });
       const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      let declarado = 0, totalReal = 0;
-      const newCobros: CobroRow[] = [];
 
-      for (let i = 0; i < rows.length; i++) {
+      // Declarado: fila 13 (índice 12), columna H (índice 7)
+      let declarado = 0;
+      const fila13 = rows[12];
+      if (fila13 && typeof fila13[7] === 'number' && fila13[7] > 0) {
+        declarado = fila13[7];
+      }
+
+      // Cobro real: buscar desde la última fila hacia arriba en columna T (índice 19)
+      let totalReal = 0;
+      for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i];
         if (!row) continue;
-        const porIdx = row.findIndex((v:any) => typeof v === 'string' && v.includes('por'));
-if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v === 'number' && v > 1000); if (numAfter) declarado = +numAfter; }
-        if (i === rows.length - 1) {
-          const colM = (typeof row[12] === 'number' && row[12] > 100) ? row[12] : 0;
-          const colT = (typeof row[19] === 'number' && row[19] > 100) ? row[19] : 0;
-          totalReal = Math.max(colM, colT);
+        const val = row[19];
+        if (typeof val === 'number' && val > 100) {
+          totalReal = val;
+          break;
         }
-        if (row[12] && typeof row[12] === 'string' && row[12].includes('réd')) {
-          const m = row[12].match(/réd\.N[ºo°]\s*(\d+)/i);
+      }
+
+      const sob = declarado > 0 && totalReal > 0 ? Math.max(declarado - totalReal, 0) : 0;
+
+      // Extraer créditos e importes (filas desde índice 16, excluye la última)
+      const newCobros: CobroRow[] = [];
+      for (let i = 16; i < rows.length - 1; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const deuda = row[12];
+        if (typeof deuda === 'string' && deuda.includes('réd')) {
+          const m = deuda.match(/réd\.N[ºo°]\s*(\d+)/i);
           const cred = m ? +m[1] : 0;
-          const imp = +(row[19] || row[20] || 0) || 0;
+          const imp = typeof row[19] === 'number' ? row[19] : 0;
           if (cred && imp > 0) {
-            newCobros.push({ fecha, monto: imp, producto: '', forma: 'COMERCIO', credito: cred, mora: '', periodo: '', banco: '', tipo: '' });
+            // Cruzar con la base
+            const base = baseMap.get(cred);
+            newCobros.push({
+              fecha,
+              monto: imp,
+              credito: cred,
+              producto: base?.producto || '',
+              forma: 'COMERCIO',
+              mora: base?.mora || '',
+              periodo: base?.periodo || '',
+              banco: base?.banco || '',
+              tipo: base?.tipo || '',
+            });
           }
         }
       }
 
-      const sob = declarado > 0 ? Math.max(declarado - totalReal, 0) : 0;
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const newRow: TablaRow = { fecha, cobro: totalReal, sobrante: sob, reverso: rev, reintegros: rei, neto: totalReal - rev + rei };
@@ -205,7 +350,7 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
   const moraClass = (m: string) => {
     if (m === 'Cobrado al día' || m === 'C1 al día') return 'bg-green-100 text-green-800';
     if (m === '0-31 días') return 'bg-blue-100 text-blue-800';
-    if (m === '30-60 días') return 'bg-yellow-100 text-yellow-800';
+    if (m === '30-60 días' || m === '60-120 días') return 'bg-yellow-100 text-yellow-800';
     if (m) return 'bg-red-100 text-red-800';
     return 'bg-gray-100 text-gray-600';
   };
@@ -243,6 +388,11 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
           </div>
           <div className="flex gap-2 items-center flex-wrap">
             {saving && <span className="text-xs text-blue-600 animate-pulse font-medium">Guardando en Sheets...</span>}
+            {baseMap.size > 0 && (
+              <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-lg">
+                ✓ Base cargada ({baseMap.size} créditos)
+              </span>
+            )}
             <button
               onClick={loadData}
               disabled={saving}
@@ -362,9 +512,16 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
         {/* Tab: Carga diaria */}
         {activeTab === 'carga' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+            {/* Cobro diario */}
             <div className="bg-white border rounded-xl p-5 shadow-sm">
               <h3 className="font-semibold text-gray-800 mb-1">Cobro diario</h3>
               <p className="text-xs text-gray-400 mb-4">El nombre del archivo debe incluir la fecha, ej: <code className="bg-gray-100 px-1 rounded">14-03-2026.xlsx</code></p>
+              {baseMap.size === 0 && (
+                <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+                  ⚠️ Cargá la base mensual primero para enriquecer los cobros con producto, mora y banco
+                </div>
+              )}
               <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl p-10 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all">
                 <span className="text-4xl mb-3">📂</span>
                 <span className="text-sm font-medium text-gray-700">Arrastrá o elegí el archivo del día</span>
@@ -372,9 +529,38 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
                 <input type="file" accept=".xlsx" className="hidden" onChange={handleFile} />
               </label>
             </div>
+
+            {/* Base mensual */}
             <div className="bg-white border rounded-xl p-5 shadow-sm">
+              <h3 className="font-semibold text-gray-800 mb-1">Base mensual</h3>
+              <p className="text-xs text-gray-400 mb-4">Subí la base una vez al mes para cruzar los cobros con producto, mora y banco. Archivo: <code className="bg-gray-100 px-1 rounded">Base_a_subir.xlsx</code></p>
+              <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl p-6 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-all">
+                <span className="text-4xl mb-3">🗂️</span>
+                <span className="text-sm font-medium text-gray-700">Elegí la base del mes</span>
+                <span className="text-xs text-gray-400 mt-1">.xlsx · se carga solo en memoria</span>
+                <input type="file" accept=".xlsx" className="hidden" onChange={handleBase} />
+              </label>
+              {baseMap.size > 0 && (
+                <p className="mt-3 text-xs text-center text-green-600 font-medium">✓ {baseMap.size} créditos cargados</p>
+              )}
+            </div>
+
+            {/* Carga histórica (solo primer mes) */}
+            <div className="bg-white border border-dashed border-gray-200 rounded-xl p-5 shadow-sm md:col-span-2">
+              <h3 className="font-semibold text-gray-800 mb-1">Carga histórica inicial <span className="text-xs font-normal text-gray-400 ml-2">(solo primer mes)</span></h3>
+              <p className="text-xs text-gray-400 mb-4">Subí el archivo con los datos históricos del mes (ej: <code className="bg-gray-100 px-1 rounded">Base_Marzo_2026.xlsx</code>). Requiere hojas <code className="bg-gray-100 px-1 rounded">Tabla</code> y <code className="bg-gray-100 px-1 rounded">Cobro</code>. <strong className="text-red-500">Reemplaza todo lo que hay en Sheets.</strong></p>
+              <label className="flex flex-col items-center justify-center border-2 border-dashed border-orange-200 rounded-xl p-6 cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-all">
+                <span className="text-4xl mb-3">📋</span>
+                <span className="text-sm font-medium text-gray-700">Elegí el archivo histórico del mes</span>
+                <span className="text-xs text-gray-400 mt-1">.xlsx con hojas Tabla y Cobro</span>
+                <input type="file" accept=".xlsx" className="hidden" onChange={handleBaseMes} />
+              </label>
+            </div>
+
+            {/* Estado de carga */}
+            <div className="bg-white border rounded-xl p-5 shadow-sm md:col-span-2">
               <h3 className="font-semibold text-gray-800 mb-4">Estado de carga</h3>
-              <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-gray-500">✅ Cobros cargados</span>
                   <span className="font-semibold">{cobros.length} registros</span>
@@ -387,7 +573,7 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
                   <span className="text-gray-500">↩️ Reversos</span>
                   <span className="font-semibold">{reversos.length} registros</span>
                 </div>
-                <div className="flex justify-between items-center py-2">
+                <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-gray-500">💰 Reintegros</span>
                   <span className="font-semibold">{reintegros.length} registros</span>
                 </div>
@@ -464,24 +650,9 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
           <div className="bg-white border rounded-xl p-5 shadow-sm">
             <h3 className="font-semibold text-gray-800 mb-4">Reversos</h3>
             <div className="flex gap-2 mb-5 flex-wrap">
-              <input
-                type="date"
-                value={revF}
-                onChange={e => setRevF(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="number"
-                value={revM}
-                onChange={e => setRevM(e.target.value)}
-                placeholder="Monto"
-                className="border rounded-lg px-3 py-2 text-sm w-44"
-              />
-              <button
-                onClick={addRev}
-                disabled={!revF || !revM || saving}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-700 disabled:opacity-40 transition-all"
-              >
+              <input type="date" value={revF} onChange={e => setRevF(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
+              <input type="number" value={revM} onChange={e => setRevM(e.target.value)} placeholder="Monto" className="border rounded-lg px-3 py-2 text-sm w-44" />
+              <button onClick={addRev} disabled={!revF || !revM || saving} className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-700 disabled:opacity-40 transition-all">
                 + Agregar reverso
               </button>
             </div>
@@ -502,13 +673,7 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
                       <td className="py-2.5">{fmtDFull(r.fecha)}</td>
                       <td className="py-2.5 text-right font-mono text-red-600 font-semibold">{ARS(r.monto)}</td>
                       <td className="py-2.5 text-right">
-                        <button
-                          onClick={() => deleteRev(i)}
-                          className="text-gray-300 hover:text-red-500 transition-colors text-lg leading-none px-1"
-                          title="Eliminar"
-                        >
-                          ×
-                        </button>
+                        <button onClick={() => deleteRev(i)} className="text-gray-300 hover:text-red-500 transition-colors text-lg leading-none px-1" title="Eliminar">×</button>
                       </td>
                     </tr>
                   ))}
@@ -528,24 +693,9 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
           <div className="bg-white border rounded-xl p-5 shadow-sm">
             <h3 className="font-semibold text-gray-800 mb-4">Reintegros</h3>
             <div className="flex gap-2 mb-5 flex-wrap">
-              <input
-                type="date"
-                value={reiF}
-                onChange={e => setReiF(e.target.value)}
-                className="border rounded-lg px-3 py-2 text-sm"
-              />
-              <input
-                type="number"
-                value={reiM}
-                onChange={e => setReiM(e.target.value)}
-                placeholder="Monto"
-                className="border rounded-lg px-3 py-2 text-sm w-44"
-              />
-              <button
-                onClick={addRei}
-                disabled={!reiF || !reiM || saving}
-                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-700 disabled:opacity-40 transition-all"
-              >
+              <input type="date" value={reiF} onChange={e => setReiF(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
+              <input type="number" value={reiM} onChange={e => setReiM(e.target.value)} placeholder="Monto" className="border rounded-lg px-3 py-2 text-sm w-44" />
+              <button onClick={addRei} disabled={!reiF || !reiM || saving} className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-gray-700 disabled:opacity-40 transition-all">
                 + Agregar reintegro
               </button>
             </div>
@@ -566,13 +716,7 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
                       <td className="py-2.5">{fmtDFull(r.fecha)}</td>
                       <td className="py-2.5 text-right font-mono text-green-600 font-semibold">{ARS(r.monto)}</td>
                       <td className="py-2.5 text-right">
-                        <button
-                          onClick={() => deleteRei(i)}
-                          className="text-gray-300 hover:text-red-500 transition-colors text-lg leading-none px-1"
-                          title="Eliminar"
-                        >
-                          ×
-                        </button>
+                        <button onClick={() => deleteRei(i)} className="text-gray-300 hover:text-red-500 transition-colors text-lg leading-none px-1" title="Eliminar">×</button>
                       </td>
                     </tr>
                   ))}
@@ -591,5 +735,3 @@ if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v =
     </div>
   );
 }
-
-
