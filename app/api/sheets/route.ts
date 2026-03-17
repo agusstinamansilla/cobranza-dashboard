@@ -64,23 +64,31 @@ export async function POST(req: NextRequest) {
       if (!tablaSheet) throw new Error('Hoja Tabla no encontrada');
       const sheetId = tablaSheet.properties!.sheetId!;
 
-      const tablaData = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Tabla!A:F' });
+      // Leer con FORMULA para obtener valores reales
+      const tablaData = await sheets.spreadsheets.values.get({
+        spreadsheetId: id,
+        range: 'Tabla!A:F',
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
       const allRows = tablaData.data.values || [];
       const headerRowIndex = allRows.findIndex(r => r && r[0] && String(r[0]).trim().toLowerCase() === 'fecha');
-      if (headerRowIndex < 0) throw new Error('No se encontró el encabezado "Fecha" en la hoja Tabla');
+      if (headerRowIndex < 0) throw new Error('No se encontró el encabezado "Fecha"');
 
       const firstDataRow = headerRowIndex + 1;
       const lastDataRow = allRows.length;
 
+      // Calcular totales con valores numéricos reales
       const VTO = 232751387;
       let totalCobro = 0, totalNeto = 0, totalRev = 0, totalRei = 0;
       for (let i = firstDataRow; i < lastDataRow; i++) {
-        totalCobro += parseFloat(allRows[i]?.[1] || '0') || 0;
-        totalRev   += parseFloat(allRows[i]?.[3] || '0') || 0;
-        totalRei   += parseFloat(allRows[i]?.[4] || '0') || 0;
-        totalNeto  += parseFloat(allRows[i]?.[5] || '0') || 0;
+        const r = allRows[i];
+        if (!r) continue;
+        totalCobro += Number(r[1]) || 0;
+        totalRev   += Number(r[3]) || 0;
+        totalRei   += Number(r[4]) || 0;
+        totalNeto  += Number(r[5]) || 0;
       }
-      const pctCobrado = totalCobro > 0 ? Math.round((totalNeto / VTO) * 100) : 0;
+      const pctCobrado = VTO > 0 ? Math.round((totalNeto / VTO) * 100) : 0;
       const pctRevRei  = totalCobro > 0 ? Math.round(((totalRev + totalRei) / totalCobro) * 100) : 0;
       const pendiente  = VTO - totalNeto;
 
@@ -89,13 +97,17 @@ export async function POST(req: NextRequest) {
       // Limpiar formato previo
       requests.push({
         repeatCell: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 15, startColumnIndex: 0, endColumnIndex: 12 },
+          range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 0, endColumnIndex: 12 },
           cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false, fontSize: 10, foregroundColor: { red: 0.2, green: 0.2, blue: 0.2 } }, horizontalAlignment: 'LEFT' } },
           fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,numberFormat)',
         }
       });
 
-      // Header tabla principal
+      // Deshacer merges previos en cols H-I
+      requests.push({ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 7, endColumnIndex: 9 } } });
+
+      // ── Tabla principal ──
+      // Header
       requests.push({
         repeatCell: {
           range: { sheetId, startRowIndex: headerRowIndex, endRowIndex: headerRowIndex + 1, startColumnIndex: 0, endColumnIndex: 6 },
@@ -138,19 +150,28 @@ export async function POST(req: NextRequest) {
       // Freeze header
       requests.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: headerRowIndex + 1 } }, fields: 'gridProperties.frozenRowCount' } });
 
-      // ── BLOQUE 1: TOTALES (col H-I) ──
-      const colH = 7;
-      const b1Start = headerRowIndex;
+      // ══════════════════════════════════
+      // BLOQUE 1: TOTALES — empieza en fila headerRowIndex + 1 (una fila abajo del header de la tabla)
+      const colH = 7; // columna H
+      const b1Start = headerRowIndex + 1; // fila 4 si header está en fila 3
 
-      requests.push({ repeatCell: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.13, green: 0.27, blue: 0.53 }, textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } }, horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)' } });
+      // Merge H-I para el título
+      requests.push({ mergeCells: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          cell: { userEnteredFormat: { backgroundColor: { red: 0.13, green: 0.27, blue: 0.53 }, textFormat: { bold: true, fontSize: 12, foregroundColor: { red: 1, green: 1, blue: 1 } }, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        }
+      });
 
       const totalesRows = [
-        { label: 'Vencimiento', value: VTO,       color: { red: 0.2,  green: 0.2,  blue: 0.5  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
-        { label: 'Cobro bruto', value: totalCobro, color: { red: 0.1,  green: 0.35, blue: 0.65 }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
-        { label: 'Reversos',    value: totalRev,   color: { red: 0.75, green: 0.1,  blue: 0.1  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
-        { label: 'Reintegros',  value: totalRei,   color: { red: 0.2,  green: 0.2,  blue: 0.2  }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
-        { label: 'Neto total',  value: totalNeto,  color: { red: 0.1,  green: 0.45, blue: 0.1  }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
-        { label: 'Pendiente',   value: pendiente,  color: { red: 0.75, green: 0.1,  blue: 0.1  }, bg: { red: 1.0,  green: 0.95, blue: 0.95 } },
+        { label: 'Vencimiento', value: VTO,        color: { red: 0.2,  green: 0.2,  blue: 0.5  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
+        { label: 'Cobro bruto', value: totalCobro,  color: { red: 0.1,  green: 0.35, blue: 0.65 }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
+        { label: 'Reversos',    value: totalRev,    color: { red: 0.75, green: 0.1,  blue: 0.1  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
+        { label: 'Reintegros',  value: totalRei,    color: { red: 0.2,  green: 0.2,  blue: 0.2  }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
+        { label: 'Neto total',  value: totalNeto,   color: { red: 0.1,  green: 0.45, blue: 0.1  }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
+        { label: 'Pendiente',   value: pendiente,   color: { red: 0.75, green: 0.1,  blue: 0.1  }, bg: { red: 1.0,  green: 0.95, blue: 0.95 } },
       ];
 
       totalesRows.forEach((item, idx) => {
@@ -161,20 +182,29 @@ export async function POST(req: NextRequest) {
 
       requests.push({ updateBorders: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 7, startColumnIndex: colH, endColumnIndex: colH + 2 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.75, green: 0.8, blue: 0.9 } }, innerVertical: { style: 'SOLID', color: { red: 0.75, green: 0.8, blue: 0.9 } } } });
 
-      // ── BLOQUE 2: INDICADORES ──
+      // ══════════════════════════════════
+      // BLOQUE 2: INDICADORES — una fila de separación abajo del bloque 1
       const b2Start = b1Start + 8;
 
-      requests.push({ repeatCell: { range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.18, green: 0.38, blue: 0.22 }, textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 1, green: 1, blue: 1 } }, horizontalAlignment: 'CENTER' } }, fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)' } });
+      // Merge H-I para el título
+      requests.push({ mergeCells: { range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          cell: { userEnteredFormat: { backgroundColor: { red: 0.18, green: 0.38, blue: 0.22 }, textFormat: { bold: true, fontSize: 12, foregroundColor: { red: 1, green: 1, blue: 1 } }, horizontalAlignment: 'CENTER', verticalAlignment: 'MIDDLE' } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        }
+      });
 
       const indicadoresRows = [
-        { label: '% Cobrado',         value: pctCobrado + '%', color: { red: 0.1,  green: 0.45, blue: 0.1  }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
-        { label: '% Rev+Rei / Cobro', value: pctRevRei + '%',  color: { red: 0.65, green: 0.35, blue: 0.0  }, bg: { red: 1.0,  green: 0.97, blue: 0.9  } },
+        { label: '% Cobrado',         value: pctCobrado + '%', color: { red: 0.1,  green: 0.45, blue: 0.1 }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
+        { label: '% Rev+Rei / Cobro', value: pctRevRei + '%',  color: { red: 0.65, green: 0.35, blue: 0.0 }, bg: { red: 1.0,  green: 0.97, blue: 0.9  } },
       ];
 
       indicadoresRows.forEach((item, idx) => {
         const r = b2Start + 1 + idx;
         requests.push({ repeatCell: { range: { sheetId, startRowIndex: r, endRowIndex: r+1, startColumnIndex: colH, endColumnIndex: colH+1 }, cell: { userEnteredFormat: { backgroundColor: item.bg, textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.25, green: 0.25, blue: 0.25 } }, horizontalAlignment: 'LEFT' } }, fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)' } });
-        requests.push({ repeatCell: { range: { sheetId, startRowIndex: r, endRowIndex: r+1, startColumnIndex: colH+1, endColumnIndex: colH+2 }, cell: { userEnteredFormat: { backgroundColor: item.bg, textFormat: { bold: true, fontSize: 14, foregroundColor: item.color }, horizontalAlignment: 'RIGHT', numberFormat: { type: 'TEXT' } } }, fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,numberFormat)' } });
+        requests.push({ repeatCell: { range: { sheetId, startRowIndex: r, endRowIndex: r+1, startColumnIndex: colH+1, endColumnIndex: colH+2 }, cell: { userEnteredFormat: { backgroundColor: item.bg, textFormat: { bold: true, fontSize: 16, foregroundColor: item.color }, horizontalAlignment: 'RIGHT', numberFormat: { type: 'TEXT' } } }, fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,numberFormat)' } });
       });
 
       requests.push({ updateBorders: { range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 3, startColumnIndex: colH, endColumnIndex: colH + 2 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.7, green: 0.85, blue: 0.75 } }, innerVertical: { style: 'SOLID', color: { red: 0.7, green: 0.85, blue: 0.75 } } } });
@@ -185,21 +215,58 @@ export async function POST(req: NextRequest) {
 
       await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
 
-      // Escribir valores bloque 1
+      // Escribir valores numéricos reales (no texto) para que el formato de moneda funcione
       await sheets.spreadsheets.values.update({
         spreadsheetId: id,
         range: `Tabla!H${b1Start + 1}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [['Totales del mes', ''], ['Vencimiento', VTO], ['Cobro bruto', totalCobro], ['Reversos', totalRev], ['Reintegros', totalRei], ['Neto total', totalNeto], ['Pendiente', pendiente]] }
+        requestBody: {
+          values: [
+            ['Totales del mes'],
+            ['Vencimiento', VTO],
+            ['Cobro bruto', totalCobro],
+            ['Reversos', totalRev],
+            ['Reintegros', totalRei],
+            ['Neto total', totalNeto],
+            ['Pendiente', pendiente],
+          ]
+        }
       });
 
-      // Escribir valores bloque 2
       await sheets.spreadsheets.values.update({
         spreadsheetId: id,
         range: `Tabla!H${b2Start + 1}`,
         valueInputOption: 'USER_ENTERED',
-        requestBody: { values: [['Indicadores', ''], ['% Cobrado', pctCobrado + '%'], ['% Rev+Rei / Cobro', pctRevRei + '%']] }
+        requestBody: {
+          values: [
+            ['Indicadores'],
+            ['% Cobrado', pctCobrado + '%'],
+            ['% Rev+Rei / Cobro', pctRevRei + '%'],
+          ]
+        }
       });
+
+      // ── Formato fechas en hoja Cobros ──
+      const cobrosSheet = meta.data.sheets?.find(s => s.properties?.title === 'Cobros');
+      if (cobrosSheet) {
+        const cobrosSheetId = cobrosSheet.properties!.sheetId!;
+        const cobrosData = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Cobros!A:A' });
+        const cobrosLastRow = (cobrosData.data.values || []).length;
+        if (cobrosLastRow > 2) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: id,
+            requestBody: {
+              requests: [{
+                repeatCell: {
+                  range: { sheetId: cobrosSheetId, startRowIndex: 2, endRowIndex: cobrosLastRow, startColumnIndex: 0, endColumnIndex: 1 },
+                  cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'dd/mm/yyyy' } } },
+                  fields: 'userEnteredFormat(numberFormat)',
+                }
+              }]
+            }
+          });
+        }
+      }
     }
 
     return NextResponse.json({ ok: true });
