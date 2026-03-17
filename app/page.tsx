@@ -12,10 +12,10 @@ const fmtDFull = (s: string) =>
   new Date(s + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
 
 type TablaRow = { fecha: string; cobro: number; sobrante: number; reverso: number; reintegros: number; neto: number };
-type CobroRow = { fecha: string; monto: number; producto: string; forma: string; credito: number; mora: string; periodo: string; banco: string; tipo: string };
+type CobroRow = { fecha: string; monto: number; producto: string; forma: string; credito: number; mora: string; periodo: string; banco: string; tipo: string; documento: number };
 type SimpleRow = { fecha: string; monto: number };
 // Mapa de crédito → datos de la base
-type BaseMap = Map<number, { producto: string; forma: string; mora: string; periodo: string; banco: string; tipo: string }>;
+type BaseMap = Map<number, { producto: string; forma: string; mora: string; periodo: string; banco: string; tipo: string; documento: number }>;
 
 const VTO = 232751387;
 
@@ -53,7 +53,7 @@ export default function Dashboard() {
       if (d.cobros?.length > 1) {
         setCobros(d.cobros.slice(1).map((row: string[]) => ({
           fecha: row[0], monto: +row[1] || 0, producto: row[2] || '', forma: row[3] || '',
-          credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '',
+          credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0,
         })));
       }
       if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => ({ fecha: row[0], monto: +row[1] || 0 })));
@@ -86,8 +86,8 @@ export default function Dashboard() {
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
-    await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo'],
-      todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo]));
+    await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo', 'Documento'],
+      todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || '']));
   }
 
   // ─── Carga de Base mensual (Base_a_subir) ────────────────────────────────
@@ -108,11 +108,12 @@ export default function Dashboard() {
         if (!cred || isNaN(cred)) continue;
         map.set(cred, {
           producto: row[9] || '',
-          forma: '',          // la forma viene del archivo diario (COMERCIO)
+          forma: '',
           mora: row[6] || '',
           periodo: row[8] || '',
           banco: row[5] || '',
-          tipo: row[7] || '', // Primario/Renovacion
+          tipo: row[7] || '',
+          documento: typeof row[1] === 'number' ? row[1] : parseInt(row[1]) || 0,
         });
       }
       setBaseMap(map);
@@ -190,6 +191,7 @@ export default function Dashboard() {
               periodo: r[6] || '',
               banco: r[7] || '',
               tipo: r[8] || '',
+              documento: +r[9] || 0,
             };
           });
       }
@@ -264,6 +266,7 @@ export default function Dashboard() {
               periodo: base?.periodo || '',
               banco: base?.banco || '',
               tipo: base?.tipo || '',
+              documento: base?.documento || 0,
             });
           }
         }
@@ -387,42 +390,20 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
-  {saving && <span className="text-xs text-blue-600 animate-pulse font-medium">Guardando en Sheets...</span>}
-  {baseMap.size > 0 && (
-    <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-lg">
-      ✓ Base cargada ({baseMap.size} créditos)
-    </span>
-  )}
-  <button
-    onClick={async () => {
-      setSaving(true);
-      try {
-        const res = await fetch('/api/sheets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'format_tabla' }),
-        });
-        const d = await res.json();
-        if (d.error) throw new Error(d.error);
-        alert('✅ Sheet formateado correctamente');
-      } catch (e: any) {
-        setError('Error al formatear: ' + e.message);
-      }
-      setSaving(false);
-    }}
-    disabled={saving}
-    className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
-  >
-    🎨 Formatear Sheet
-  </button>
-  <button
-    onClick={loadData}
-    disabled={saving}
-    className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
-  >
-    ↻ Actualizar
-  </button>
-</div>
+            {saving && <span className="text-xs text-blue-600 animate-pulse font-medium">Guardando en Sheets...</span>}
+            {baseMap.size > 0 && (
+              <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-lg">
+                ✓ Base cargada ({baseMap.size} créditos)
+              </span>
+            )}
+            <button
+              onClick={loadData}
+              disabled={saving}
+              className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
+            >
+              ↻ Actualizar
+            </button>
+          </div>
         </div>
 
         {/* Error banner */}
@@ -633,7 +614,7 @@ export default function Dashboard() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-gray-50 z-10">
                   <tr>
-                    {['Crédito', 'Mora', 'Producto', 'Forma', 'Banco', 'Periodo', 'Tipo', 'Importe'].map(h => (
+                    {['Crédito', 'Documento', 'Mora', 'Producto', 'Forma', 'Banco', 'Periodo', 'Tipo', 'Importe'].map(h => (
                       <th key={h} className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">
                         {h}
                       </th>
@@ -642,12 +623,13 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {detRows.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">
+                    <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">
                       {fechaSel ? 'Sin cobros para esta fecha' : 'Seleccioná una fecha'}
                     </td></tr>
                   ) : detRows.map((r, i) => (
                     <tr key={i} className="border-b hover:bg-gray-50 transition-colors">
                       <td className="px-3 py-2.5 font-mono font-semibold text-gray-800">{r.credito}</td>
+                      <td className="px-3 py-2.5 font-mono text-xs text-gray-600">{r.documento || '—'}</td>
                       <td className="px-3 py-2.5">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${moraClass(r.mora)}`}>
                           {r.mora || '—'}
