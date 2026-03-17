@@ -57,27 +57,38 @@ export default function Dashboard() {
           return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
         }));
       }
+      if (d.tabla?.length > 1) {
+        setTabla(d.tabla.slice(1).map((row: string[]) => {
+          let fecha = row[0] || '';
+          // Soportar dd/mm/yyyy y yyyy-mm-dd
+          if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+            const [dd, mm, yyyy] = fecha.split('/');
+            fecha = `${yyyy}-${mm}-${dd}`;
+          }
+          return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
+        }));
+      }
       if (d.cobros?.length > 1) {
         setCobros(d.cobros.slice(1).map((row: string[]) => {
           let fecha = row[0] || '';
-          if (fecha.includes('/')) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
+          if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
           return { fecha, monto: +row[1] || 0, producto: row[2] || '', forma: row[3] || '',
             credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0 };
         }));
       }
       if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => {
         let fecha = row[0] || '';
-        if (fecha.includes('/')) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
+        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
         return { fecha, monto: +row[1] || 0 };
       }));
       if (d.reintegros?.length > 1) setReintegros(d.reintegros.slice(1).map((row: string[]) => {
         let fecha = row[0] || '';
-        if (fecha.includes('/')) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
+        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
         return { fecha, monto: +row[1] || 0 };
       }));
       if (d.sobrantes?.length > 1) setSobrantes(d.sobrantes.slice(1).map((row: string[]) => {
         let fecha = row[0] || '';
-        if (fecha.includes('/')) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
+        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
         return { fecha, archivo: row[1] || '', declarado: +row[2] || 0, cobrado: +row[3] || 0, sobrante: +row[4] || 0 };
       }));
     } catch (e: any) {
@@ -104,26 +115,17 @@ export default function Dashboard() {
 
   async function saveTabla(t: TablaRow[]) {
     await saveSheet('Tabla', ['Fecha', 'Cobro', 'Sobrante', 'Reverso', 'Reintegros', 'Neto'],
-      t.map(r => {
-        const [y, m, d] = r.fecha.split('-');
-        return [`${d}/${m}/${y}`, r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto];
-      }));
+      t.map(r => [String(r.fecha), r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
     await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo', 'Documento'],
-      todos.map(r => {
-        const [y, m, d] = r.fecha.split('-');
-        return [`${d}/${m}/${y}`, r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || ''];
-      }));
+      todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || '']));
   }
 
   async function saveSobrantesData(todos: SobranteRow[]) {
     await saveSheet('Sobrantes', ['Fecha', 'Archivo', 'Declarado', 'Cobrado', 'Sobrante'],
-      todos.map(r => {
-        const [y, m, d] = r.fecha.split('-');
-        return [`${d}/${m}/${y}`, r.archivo, r.declarado, r.cobrado, r.sobrante];
-      }));
+      todos.map(r => [String(r.fecha), r.archivo, r.declarado, r.cobrado, r.sobrante]));
   }
 
   // ─── Carga de Base mensual (Base_a_subir) ────────────────────────────────
@@ -258,11 +260,17 @@ export default function Dashboard() {
       const wb = XLSX.read(new Uint8Array(ev.target!.result as ArrayBuffer), { type: 'array' });
       const rows: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
 
-      // Declarado: fila 13 (índice 12), columna H (índice 7)
+      // Declarado: buscar fila que contenga 'por $' y tomar el número siguiente
       let declarado = 0;
-      const fila13 = rows[12];
-      if (fila13 && typeof fila13[7] === 'number' && fila13[7] > 0) {
-        declarado = fila13[7];
+      for (let i = 0; i < Math.min(rows.length, 20); i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const porIdx = row.findIndex((v: any) => typeof v === 'string' && v.includes('por $'));
+        if (porIdx >= 0) {
+          // Buscar número > 1000 después de 'por $' en esa misma fila
+          const num = row.slice(porIdx + 1).find((v: any) => typeof v === 'number' && v > 1000);
+          if (num) { declarado = +num; break; }
+        }
       }
 
       // Cobro real: buscar desde la última fila hacia arriba en columna T (índice 19)
