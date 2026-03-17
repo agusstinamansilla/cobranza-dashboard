@@ -60,8 +60,7 @@ export default function Dashboard() {
       if (d.tabla?.length > 1) {
         setTabla(d.tabla.slice(1).map((row: string[]) => {
           let fecha = row[0] || '';
-          // Soportar dd/mm/yyyy y yyyy-mm-dd
-          if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+          if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
             const [dd, mm, yyyy] = fecha.split('/');
             fecha = `${yyyy}-${mm}-${dd}`;
           }
@@ -69,28 +68,16 @@ export default function Dashboard() {
         }));
       }
       if (d.cobros?.length > 1) {
-        setCobros(d.cobros.slice(1).map((row: string[]) => {
-          let fecha = row[0] || '';
-          if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
-          return { fecha, monto: +row[1] || 0, producto: row[2] || '', forma: row[3] || '',
-            credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0 };
-        }));
+        setCobros(d.cobros.slice(1).map((row: string[]) => ({
+          fecha: row[0] || '', monto: +row[1] || 0, producto: row[2] || '', forma: row[3] || '',
+          credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0,
+        })));
       }
-      if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => {
-        let fecha = row[0] || '';
-        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
-        return { fecha, monto: +row[1] || 0 };
-      }));
-      if (d.reintegros?.length > 1) setReintegros(d.reintegros.slice(1).map((row: string[]) => {
-        let fecha = row[0] || '';
-        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
-        return { fecha, monto: +row[1] || 0 };
-      }));
-      if (d.sobrantes?.length > 1) setSobrantes(d.sobrantes.slice(1).map((row: string[]) => {
-        let fecha = row[0] || '';
-        if (fecha.match(/^\d{2}\/\d{2}\/\d{4}$/)) { const [dd,mm,yyyy] = fecha.split('/'); fecha = `${yyyy}-${mm}-${dd}`; }
-        return { fecha, archivo: row[1] || '', declarado: +row[2] || 0, cobrado: +row[3] || 0, sobrante: +row[4] || 0 };
-      }));
+      if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => ({ fecha: row[0] || '', monto: +row[1] || 0 })));
+      if (d.reintegros?.length > 1) setReintegros(d.reintegros.slice(1).map((row: string[]) => ({ fecha: row[0] || '', monto: +row[1] || 0 })));
+      if (d.sobrantes?.length > 1) setSobrantes(d.sobrantes.slice(1).map((row: string[]) => ({
+        fecha: row[0] || '', archivo: row[1] || '', declarado: +row[2] || 0, cobrado: +row[3] || 0, sobrante: +row[4] || 0,
+      })));
     } catch (e: any) {
       setError('Error al cargar datos: ' + e.message);
     }
@@ -115,7 +102,11 @@ export default function Dashboard() {
 
   async function saveTabla(t: TablaRow[]) {
     await saveSheet('Tabla', ['Fecha', 'Cobro', 'Sobrante', 'Reverso', 'Reintegros', 'Neto'],
-      t.map(r => [String(r.fecha), r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
+      t.map(r => {
+        const parts = r.fecha.split('-');
+        const fechaFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : r.fecha;
+        return [fechaFmt, r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto];
+      }));
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
@@ -344,8 +335,8 @@ export default function Dashboard() {
         ? tabla.map(r => r.fecha === fecha ? newRow : r)
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-      // Cobros: ACUMULAR (no reemplazar) los del mismo día
-      const todosCobros = [...cobros.filter(x => x.fecha !== fecha), ...cobros.filter(x => x.fecha === fecha), ...newCobros];
+      // Cobros: ACUMULAR los nuevos a los existentes de otras fechas + misma fecha
+      const todosCobros = [...cobros, ...newCobros];
       setCobros(todosCobros);
       setTabla(newTabla);
 

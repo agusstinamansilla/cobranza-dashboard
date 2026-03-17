@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       if (rows.length > 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId: id, range: sheet + '!A1',
-          valueInputOption: 'RAW', requestBody: { values: rows },
+          valueInputOption: 'USER_ENTERED', requestBody: { values: rows },
         });
       }
     }
