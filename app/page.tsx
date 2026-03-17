@@ -387,20 +387,42 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex gap-2 items-center flex-wrap">
-            {saving && <span className="text-xs text-blue-600 animate-pulse font-medium">Guardando en Sheets...</span>}
-            {baseMap.size > 0 && (
-              <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-lg">
-                ✓ Base cargada ({baseMap.size} créditos)
-              </span>
-            )}
-            <button
-              onClick={loadData}
-              disabled={saving}
-              className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
-            >
-              ↻ Actualizar
-            </button>
-          </div>
+  {saving && <span className="text-xs text-blue-600 animate-pulse font-medium">Guardando en Sheets...</span>}
+  {baseMap.size > 0 && (
+    <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded-lg">
+      ✓ Base cargada ({baseMap.size} créditos)
+    </span>
+  )}
+  <button
+    onClick={async () => {
+      setSaving(true);
+      try {
+        const res = await fetch('/api/sheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'format_tabla' }),
+        });
+        const d = await res.json();
+        if (d.error) throw new Error(d.error);
+        alert('✅ Sheet formateado correctamente');
+      } catch (e: any) {
+        setError('Error al formatear: ' + e.message);
+      }
+      setSaving(false);
+    }}
+    disabled={saving}
+    className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
+  >
+    🎨 Formatear Sheet
+  </button>
+  <button
+    onClick={loadData}
+    disabled={saving}
+    className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
+  >
+    ↻ Actualizar
+  </button>
+</div>
         </div>
 
         {/* Error banner */}
