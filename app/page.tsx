@@ -274,14 +274,27 @@ export default function Dashboard() {
 
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
-      const newRow: TablaRow = { fecha, cobro: totalReal, sobrante: sob, reverso: rev, reintegros: rei, neto: totalReal - rev + rei };
 
-      const newTabla = tabla.findIndex(r => r.fecha === fecha) >= 0
+      // Si ya existe esa fecha en la tabla, SUMAR al existente
+      const existente = tabla.find(r => r.fecha === fecha);
+      const cobroTotal = (existente?.cobro || 0) + totalReal;
+      const sobTotal   = (existente?.sobrante || 0) + sob;
+      const newRow: TablaRow = {
+        fecha,
+        cobro: cobroTotal,
+        sobrante: sobTotal,
+        reverso: rev,
+        reintegros: rei,
+        neto: cobroTotal - rev + rei,
+      };
+
+      const newTabla = existente
         ? tabla.map(r => r.fecha === fecha ? newRow : r)
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-      const otrosCobros = cobros.filter(x => x.fecha !== fecha);
-      const todosCobros = [...otrosCobros, ...newCobros];
+      // Cobros: ACUMULAR (no reemplazar) los del mismo día
+      const cobrosExistentes = cobros.filter(x => x.fecha === fecha);
+      const todosCobros = [...cobros.filter(x => x.fecha !== fecha), ...cobrosExistentes, ...newCobros];
       setCobros(todosCobros);
       setTabla(newTabla);
 
@@ -396,6 +409,28 @@ export default function Dashboard() {
                 ✓ Base cargada ({baseMap.size} créditos)
               </span>
             )}
+            <button
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  const res = await fetch('/api/sheets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'format_tabla' }),
+                  });
+                  const d = await res.json();
+                  if (d.error) throw new Error(d.error);
+                  alert('✅ Sheet formateado correctamente');
+                } catch (e: any) {
+                  setError('Error al formatear: ' + e.message);
+                }
+                setSaving(false);
+              }}
+              disabled={saving}
+              className="px-3 py-2 text-sm border rounded-lg hover:bg-white bg-white shadow-sm disabled:opacity-50 transition-all"
+            >
+              🎨 Formatear Sheet
+            </button>
             <button
               onClick={loadData}
               disabled={saving}
