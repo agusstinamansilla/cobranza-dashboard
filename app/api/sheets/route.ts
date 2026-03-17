@@ -110,6 +110,10 @@ export async function POST(req: NextRequest) {
       const requests: any[] = [];
 
       // Limpiar formato previo
+      // También borrar valores basura en filas antes del header (ej: fila 2 con "Fecha" y ceros)
+      if (headerRowIndex > 0) {
+        await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A2:F${headerRowIndex}` });
+      }
       requests.push({
         repeatCell: {
           range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 0, endColumnIndex: 12 },
@@ -155,7 +159,9 @@ export async function POST(req: NextRequest) {
       requests.push({ repeatCell: { range: { sheetId, startRowIndex: firstDataRow, endRowIndex: lastDataRow, startColumnIndex: 5, endColumnIndex: 6 }, cell: { userEnteredFormat: { textFormat: { bold: false, foregroundColor: { red: 0.1, green: 0.45, blue: 0.1 } } } }, fields: 'userEnteredFormat(textFormat)' } });
 
       // Bordes tabla
-      requests.push({ updateBorders: { range: { sheetId, startRowIndex: headerRowIndex, endRowIndex: lastDataRow, startColumnIndex: 0, endColumnIndex: 6 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.85, green: 0.85, blue: 0.85 } }, innerVertical: { style: 'SOLID', color: { red: 0.85, green: 0.85, blue: 0.85 } } } });
+      if (lastDataRow > firstDataRow) {
+        requests.push({ updateBorders: { range: { sheetId, startRowIndex: headerRowIndex, endRowIndex: lastDataRow, startColumnIndex: 0, endColumnIndex: 6 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.6, green: 0.6, blue: 0.6 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.85, green: 0.85, blue: 0.85 } }, innerVertical: { style: 'SOLID', color: { red: 0.85, green: 0.85, blue: 0.85 } } } });
+      }
 
       // Ancho columnas A-F
       [110, 140, 130, 130, 130, 140].forEach((px, i) => {
@@ -166,9 +172,9 @@ export async function POST(req: NextRequest) {
       requests.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: headerRowIndex + 1 } }, fields: 'gridProperties.frozenRowCount' } });
 
       // ══════════════════════════════════
-      // BLOQUE 1: TOTALES — empieza en fila headerRowIndex + 1 (una fila abajo del header de la tabla)
+      // BLOQUE 1: TOTALES — alineado con el header de la tabla
       const colH = 7; // columna H
-      const b1Start = 3; // siempre fila 4 (índice 3)
+      const b1Start = headerRowIndex; // misma fila que el header
 
       // Merge H-I para el título
       requests.push({ mergeCells: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
@@ -267,13 +273,13 @@ export async function POST(req: NextRequest) {
         const cobrosSheetId = cobrosSheet.properties!.sheetId!;
         const cobrosData = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Cobros!A:A' });
         const cobrosLastRow = (cobrosData.data.values || []).length;
-        if (cobrosLastRow > 2) {
+        if (cobrosLastRow > 1) {
           await sheets.spreadsheets.batchUpdate({
             spreadsheetId: id,
             requestBody: {
               requests: [{
                 repeatCell: {
-                  range: { sheetId: cobrosSheetId, startRowIndex: 2, endRowIndex: cobrosLastRow, startColumnIndex: 0, endColumnIndex: 1 },
+                  range: { sheetId: cobrosSheetId, startRowIndex: 1, endRowIndex: cobrosLastRow, startColumnIndex: 0, endColumnIndex: 1 },
                   cell: { userEnteredFormat: { numberFormat: { type: 'DATE', pattern: 'dd/mm/yyyy' } } },
                   fields: 'userEnteredFormat(numberFormat)',
                 }
