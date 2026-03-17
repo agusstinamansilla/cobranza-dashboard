@@ -14,6 +14,7 @@ const fmtDFull = (s: string) =>
 type TablaRow = { fecha: string; cobro: number; sobrante: number; reverso: number; reintegros: number; neto: number };
 type CobroRow = { fecha: string; monto: number; producto: string; forma: string; credito: number; mora: string; periodo: string; banco: string; tipo: string; documento: number };
 type SimpleRow = { fecha: string; monto: number };
+type SobranteRow = { fecha: string; archivo: string; declarado: number; cobrado: number; sobrante: number };
 // Mapa de crédito → datos de la base
 type BaseMap = Map<number, { producto: string; forma: string; mora: string; periodo: string; banco: string; tipo: string; documento: number }>;
 
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [cobros, setCobros] = useState<CobroRow[]>([]);
   const [reversos, setReversos] = useState<SimpleRow[]>([]);
   const [reintegros, setReintegros] = useState<SimpleRow[]>([]);
+  const [sobrantes, setSobrantes] = useState<SobranteRow[]>([]);
   const [baseMap, setBaseMap] = useState<BaseMap>(new Map());
   const [activeTab, setActiveTab] = useState('tabla');
   const [fechaSel, setFechaSel] = useState('');
@@ -58,6 +60,9 @@ export default function Dashboard() {
       }
       if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => ({ fecha: row[0], monto: +row[1] || 0 })));
       if (d.reintegros?.length > 1) setReintegros(d.reintegros.slice(1).map((row: string[]) => ({ fecha: row[0], monto: +row[1] || 0 })));
+      if (d.sobrantes?.length > 1) setSobrantes(d.sobrantes.slice(1).map((row: string[]) => ({
+        fecha: row[0], archivo: row[1] || '', declarado: +row[2] || 0, cobrado: +row[3] || 0, sobrante: +row[4] || 0,
+      })));
     } catch (e: any) {
       setError('Error al cargar datos: ' + e.message);
     }
@@ -88,6 +93,11 @@ export default function Dashboard() {
   async function saveCobrosData(todos: CobroRow[]) {
     await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo', 'Documento'],
       todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || '']));
+  }
+
+  async function saveSobrantesData(todos: SobranteRow[]) {
+    await saveSheet('Sobrantes', ['Fecha', 'Archivo', 'Declarado', 'Cobrado', 'Sobrante'],
+      todos.map(r => [String(r.fecha), r.archivo, r.declarado, r.cobrado, r.sobrante]));
   }
 
   // ─── Carga de Base mensual (Base_a_subir) ────────────────────────────────
@@ -275,14 +285,22 @@ export default function Dashboard() {
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
 
-      // Si ya existe esa fecha en la tabla, SUMAR al existente
+      // Guardar sobrante en hoja Sobrantes con número de archivo
+      const archivoNum = String((sobrantes.filter(s => s.fecha === fecha).length) + 1);
+      const newSobranteRow: SobranteRow = { fecha, archivo: archivoNum, declarado, cobrado: totalReal, sobrante: sob };
+      const newSobrantes = [...sobrantes, newSobranteRow];
+      setSobrantes(newSobrantes);
+
+      // Sobrante total del día = suma de todos los sobrantes de esa fecha
+      const sobTotalDia = newSobrantes.filter(s => s.fecha === fecha).reduce((a, s) => a + s.sobrante, 0);
+
+      // Si ya existe esa fecha en la tabla, SUMAR cobro al existente
       const existente = tabla.find(r => r.fecha === fecha);
       const cobroTotal = (existente?.cobro || 0) + totalReal;
-      const sobTotal   = (existente?.sobrante || 0) + sob;
       const newRow: TablaRow = {
         fecha,
         cobro: cobroTotal,
-        sobrante: sobTotal,
+        sobrante: sobTotalDia,
         reverso: rev,
         reintegros: rei,
         neto: cobroTotal - rev + rei,
@@ -293,11 +311,11 @@ export default function Dashboard() {
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
 
       // Cobros: ACUMULAR (no reemplazar) los del mismo día
-      const cobrosExistentes = cobros.filter(x => x.fecha === fecha);
-      const todosCobros = [...cobros.filter(x => x.fecha !== fecha), ...cobrosExistentes, ...newCobros];
+      const todosCobros = [...cobros.filter(x => x.fecha !== fecha), ...cobros.filter(x => x.fecha === fecha), ...newCobros];
       setCobros(todosCobros);
       setTabla(newTabla);
 
+      await saveSobrantesData(newSobrantes);
       await saveCobrosData(todosCobros);
       await saveTabla(newTabla);
 
@@ -375,6 +393,7 @@ export default function Dashboard() {
     { id: 'tabla', label: 'Tabla diaria' },
     { id: 'carga', label: 'Carga diaria' },
     { id: 'detalle', label: 'Cobros del día' },
+    { id: 'sobrantes', label: 'Sobrantes' },
     { id: 'reversos', label: 'Reversos' },
     { id: 'reintegros', label: 'Reintegros' },
   ];
@@ -678,6 +697,48 @@ export default function Dashboard() {
                       <td className="px-3 py-2.5 text-right font-mono font-semibold">{ARS(r.monto)}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Sobrantes */}
+        {activeTab === 'sobrantes' && (
+          <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+            <div className="p-4 border-b">
+              <h3 className="font-semibold text-gray-800">Sobrantes por archivo</h3>
+              <p className="text-xs text-gray-400 mt-1">Cada fila corresponde a un archivo subido. El sobrante de la tabla suma todos los archivos del mismo día.</p>
+            </div>
+            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 z-10">
+                  <tr>
+                    {['Fecha', 'Archivo #', 'Declarado', 'Cobrado', 'Sobrante'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide border-b">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sobrantes.length === 0 ? (
+                    <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">Sin sobrantes registrados</td></tr>
+                  ) : sobrantes.map((s, i) => (
+                    <tr key={i} className="border-b hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 font-medium">{fmtD(s.fecha)}</td>
+                      <td className="px-4 py-3 text-center font-mono text-gray-500">{s.archivo}</td>
+                      <td className="px-4 py-3 text-right font-mono text-blue-600">{ARS(s.declarado)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">{ARS(s.cobrado)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-semibold text-amber-600">{ARS(s.sobrante)}</td>
+                    </tr>
+                  ))}
+                  {sobrantes.length > 0 && (
+                    <tr className="bg-gray-50 font-semibold border-t-2 border-gray-300">
+                      <td className="px-4 py-3 text-gray-700" colSpan={2}>TOTAL</td>
+                      <td className="px-4 py-3 text-right font-mono text-blue-600">{ARS(sobrantes.reduce((a, s) => a + s.declarado, 0))}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">{ARS(sobrantes.reduce((a, s) => a + s.cobrado, 0))}</td>
+                      <td className="px-4 py-3 text-right font-mono text-amber-600">{ARS(sobrantes.reduce((a, s) => a + s.sobrante, 0))}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

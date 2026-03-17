@@ -16,17 +16,19 @@ export async function GET() {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
     const id = process.env.GOOGLE_SHEET_ID!;
-    const [tabla, cobros, reversos, reintegros] = await Promise.all([
+    const [tabla, cobros, reversos, reintegros, sobrantesSheet] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Tabla!A:F' }),
       sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Cobros!A:I' }),
       sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Reversos!A:B' }),
       sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Reintegros!A:B' }),
+      sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'Sobrantes!A:E' }).catch(() => ({ data: { values: [] } })),
     ]);
     return NextResponse.json({
       tabla: tabla.data.values || [],
       cobros: cobros.data.values || [],
       reversos: reversos.data.values || [],
       reintegros: reintegros.data.values || [],
+      sobrantes: sobrantesSheet.data.values || [],
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -49,10 +51,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'clear_and_write') {
-      await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: sheet + '!A2:Z' });
+      await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: sheet + '!A1:Z' });
       if (rows.length > 0) {
         await sheets.spreadsheets.values.update({
-          spreadsheetId: id, range: sheet + '!A2',
+          spreadsheetId: id, range: sheet + '!A1',
           valueInputOption: 'RAW', requestBody: { values: rows },
         });
       }
@@ -75,19 +77,32 @@ export async function POST(req: NextRequest) {
       if (headerRowIndex < 0) throw new Error('No se encontró el encabezado "Fecha"');
 
       const firstDataRow = headerRowIndex + 1;
-      const lastDataRow = allRows.length;
+      // Excluir filas de totales que vienen del Excel histórico (Vto, % Cobro, Pendiente)
+      // Una fila de datos válida tiene una fecha en col A (número > 40000 = fecha Excel) o string con guión
+      const lastDataRow = (() => {
+        let last = firstDataRow;
+        for (let i = firstDataRow; i < allRows.length; i++) {
+          const val = allRows[i]?.[0];
+          const isDate = typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val);
+          const isDateNum = typeof val === 'number' && val > 40000;
+          if (isDate || isDateNum) last = i + 1;
+        }
+        return last;
+      })();
 
       // Calcular totales con valores numéricos reales
       const VTO = 232751387;
-      let totalCobro = 0, totalNeto = 0, totalRev = 0, totalRei = 0;
+      let totalCobro = 0, totalNeto = 0, totalRev = 0, totalRei = 0, totalSob = 0;
       for (let i = firstDataRow; i < lastDataRow; i++) {
         const r = allRows[i];
         if (!r) continue;
         totalCobro += Number(r[1]) || 0;
+        totalSob   += Number(r[2]) || 0;
         totalRev   += Number(r[3]) || 0;
         totalRei   += Number(r[4]) || 0;
         totalNeto  += Number(r[5]) || 0;
       }
+      const cobroBruto = totalCobro + totalSob; // Cobro + Sobrante
       const pctCobrado = VTO > 0 ? Math.round((totalNeto / VTO) * 100) : 0;
       const pctRevRei  = totalCobro > 0 ? Math.round(((totalRev + totalRei) / totalCobro) * 100) : 0;
       const pendiente  = VTO - totalNeto;
@@ -153,7 +168,7 @@ export async function POST(req: NextRequest) {
       // ══════════════════════════════════
       // BLOQUE 1: TOTALES — empieza en fila headerRowIndex + 1 (una fila abajo del header de la tabla)
       const colH = 7; // columna H
-      const b1Start = headerRowIndex + 1; // fila 4 si header está en fila 3
+      const b1Start = 3; // siempre fila 4 (índice 3)
 
       // Merge H-I para el título
       requests.push({ mergeCells: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
@@ -167,7 +182,7 @@ export async function POST(req: NextRequest) {
 
       const totalesRows = [
         { label: 'Vencimiento', value: VTO,        color: { red: 0.2,  green: 0.2,  blue: 0.5  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
-        { label: 'Cobro bruto', value: totalCobro,  color: { red: 0.1,  green: 0.35, blue: 0.65 }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
+        { label: 'Cobro bruto', value: cobroBruto,  color: { red: 0.1,  green: 0.35, blue: 0.65 }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
         { label: 'Reversos',    value: totalRev,    color: { red: 0.75, green: 0.1,  blue: 0.1  }, bg: { red: 0.93, green: 0.95, blue: 1.0  } },
         { label: 'Reintegros',  value: totalRei,    color: { red: 0.2,  green: 0.2,  blue: 0.2  }, bg: { red: 1.0,  green: 1.0,  blue: 1.0  } },
         { label: 'Neto total',  value: totalNeto,   color: { red: 0.1,  green: 0.45, blue: 0.1  }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
@@ -198,7 +213,7 @@ export async function POST(req: NextRequest) {
 
       const indicadoresRows = [
         { label: '% Cobrado',         value: pctCobrado + '%', color: { red: 0.1,  green: 0.45, blue: 0.1 }, bg: { red: 0.93, green: 0.98, blue: 0.93 } },
-        { label: '% Rev+Rei / Cobro', value: pctRevRei + '%',  color: { red: 0.65, green: 0.35, blue: 0.0 }, bg: { red: 1.0,  green: 0.97, blue: 0.9  } },
+        { label: '% Rev+Rei / Cobro Bruto', value: pctRevRei + '%',  color: { red: 0.65, green: 0.35, blue: 0.0 }, bg: { red: 1.0,  green: 0.97, blue: 0.9  } },
       ];
 
       indicadoresRows.forEach((item, idx) => {
@@ -224,7 +239,7 @@ export async function POST(req: NextRequest) {
           values: [
             ['Totales del mes'],
             ['Vencimiento', VTO],
-            ['Cobro bruto', totalCobro],
+            ['Cobro bruto', cobroBruto],
             ['Reversos', totalRev],
             ['Reintegros', totalRei],
             ['Neto total', totalNeto],
@@ -241,7 +256,7 @@ export async function POST(req: NextRequest) {
           values: [
             ['Indicadores'],
             ['% Cobrado', pctCobrado + '%'],
-            ['% Rev+Rei / Cobro', pctRevRei + '%'],
+            ['% Rev+Rei / Cobro Bruto', pctRevRei + '%'],
           ]
         }
       });
