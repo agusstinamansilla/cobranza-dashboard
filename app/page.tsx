@@ -106,7 +106,8 @@ export default function Dashboard() {
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
-        if (row[5] === 'por $' && row[7]) declarado = +row[7] || 0;
+        const porIdx = row.findIndex((v:any) => typeof v === 'string' && v.includes('por'));
+if (porIdx >= 0) { const numAfter = row.slice(porIdx).find((v:any) => typeof v === 'number' && v > 1000); if (numAfter) declarado = +numAfter; }
         if (i === rows.length - 1) {
           const colM = (typeof row[12] === 'number' && row[12] > 100) ? row[12] : 0;
           const colT = (typeof row[19] === 'number' && row[19] > 100) ? row[19] : 0;
