@@ -77,18 +77,27 @@ export async function POST(req: NextRequest) {
       if (headerRowIndex < 0) throw new Error('No se encontró el encabezado "Fecha"');
 
       const firstDataRow = headerRowIndex + 1;
-      // Excluir filas de totales que vienen del Excel histórico (Vto, % Cobro, Pendiente)
-      // Una fila de datos válida tiene una fecha en col A (número > 40000 = fecha Excel) o string con guión
+      // Detectar última fila de datos reales — excluir basura como % Cobro, Fecha, Pendiente, Vto
       const lastDataRow = (() => {
         let last = firstDataRow;
         for (let i = firstDataRow; i < allRows.length; i++) {
           const val = allRows[i]?.[0];
-          const isDate = typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val);
-          const isDateNum = typeof val === 'number' && val > 40000;
-          if (isDate || isDateNum) last = i + 1;
+          if (!val) continue;
+          const s = String(val);
+          const isDateISO  = /^\d{4}-\d{2}-\d{2}/.test(s);
+          const isDateSlash = /^\d{2}\/\d{2}\/\d{4}$/.test(s);
+          const isDateNum  = typeof val === 'number' && val > 40000;
+          if (isDateISO || isDateSlash || isDateNum) last = i + 1;
         }
         return last;
       })();
+
+      // Parsear número con posible coma decimal (ej: "4467821,47")
+      const parseNum = (v: any) => {
+        if (typeof v === 'number') return v;
+        if (!v) return 0;
+        return parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
+      };
 
       // Calcular totales con valores numéricos reales
       const VTO = 232751387;
@@ -96,11 +105,11 @@ export async function POST(req: NextRequest) {
       for (let i = firstDataRow; i < lastDataRow; i++) {
         const r = allRows[i];
         if (!r) continue;
-        totalCobro += Number(r[1]) || 0;
-        totalSob   += Number(r[2]) || 0;
-        totalRev   += Number(r[3]) || 0;
-        totalRei   += Number(r[4]) || 0;
-        totalNeto  += Number(r[5]) || 0;
+        totalCobro += parseNum(r[1]);
+        totalSob   += parseNum(r[2]);
+        totalRev   += parseNum(r[3]);
+        totalRei   += parseNum(r[4]);
+        totalNeto  += parseNum(r[5]);
       }
       const cobroBruto = totalCobro + totalSob; // Cobro + Sobrante
       const pctCobrado = VTO > 0 ? Math.round((totalNeto / VTO) * 100) : 0;
@@ -110,10 +119,12 @@ export async function POST(req: NextRequest) {
       const requests: any[] = [];
 
       // Limpiar formato previo
-      // También borrar valores basura en filas antes del header (ej: fila 2 con "Fecha" y ceros)
+      // Borrar filas basura antes del header
       if (headerRowIndex > 0) {
         await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A2:F${headerRowIndex}` });
       }
+      // Borrar filas basura después de los datos reales (% Cobro, Pendiente, Vto, etc)
+      await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A${lastDataRow + 1}:F${lastDataRow + 10}` });
       requests.push({
         repeatCell: {
           range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 0, endColumnIndex: 12 },
@@ -124,6 +135,14 @@ export async function POST(req: NextRequest) {
 
       // Deshacer merges previos en cols H-I
       requests.push({ unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 7, endColumnIndex: 9 } } });
+      // Limpiar TODO el formato en cols H-I antes de redibujar
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false, fontSize: 10, foregroundColor: { red: 0.2, green: 0.2, blue: 0.2 } } } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        }
+      });
 
       // ── Tabla principal ──
       // Header
