@@ -47,30 +47,32 @@ export default function Dashboard() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       if (d.tabla?.length > 1) {
-        setTabla(d.tabla.slice(1).map((row: string[]) => {
-          // fecha puede venir como dd/mm/yyyy o yyyy-mm-dd
-          let fecha = row[0] || '';
-          if (fecha.includes('/')) {
-            const [dd, mm, yyyy] = fecha.split('/');
-            fecha = `${yyyy}-${mm}-${dd}`;
-          }
-          return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
-        }));
-      }
-      if (d.tabla?.length > 1) {
-        setTabla(d.tabla.slice(1).map((row: string[]) => {
-          let fecha = row[0] || '';
-          if (/^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
-            const [dd, mm, yyyy] = fecha.split('/');
-            fecha = `${yyyy}-${mm}-${dd}`;
-          }
-          return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
-        }));
+        setTabla(d.tabla.slice(1)
+          .filter((row: string[]) => row[0] && row[0] !== 'Fecha' && !String(row[0]).includes('%'))
+          .map((row: string[]) => {
+            let fecha = '';
+            const raw = row[0];
+            if (!raw) return null;
+            if (typeof raw === 'number' || /^\d{5}$/.test(raw)) {
+              // Serial de Excel → yyyy-mm-dd
+              const serial = Number(raw);
+              const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+              fecha = d.toISOString().slice(0, 10);
+            } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+              const [dd, mm, yyyy] = raw.split('/');
+              fecha = `${yyyy}-${mm}-${dd}`;
+            } else {
+              fecha = raw;
+            }
+            return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
+          }).filter(Boolean) as TablaRow[]);
       }
       if (d.cobros?.length > 1) {
         setCobros(d.cobros.slice(1).map((row: string[]) => ({
           fecha: row[0] || '', monto: +row[1] || 0, producto: row[2] || '', forma: row[3] || '',
-          credito: +row[4] || 0, mora: row[5] || '', periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0,
+          credito: +row[4] || 0,
+          mora: (row[5] || '').replace(/^'/, ''), // quitar comilla si la tiene
+          periodo: row[6] || '', banco: row[7] || '', tipo: row[8] || '', documento: +row[9] || 0,
         })));
       }
       if (d.reversos?.length > 1) setReversos(d.reversos.slice(1).map((row: string[]) => ({ fecha: row[0] || '', monto: +row[1] || 0 })));
@@ -101,17 +103,23 @@ export default function Dashboard() {
   }
 
   async function saveTabla(t: TablaRow[]) {
+    const toSerial = (fecha: string) => {
+      const [y, m, d] = fecha.split('-').map(Number);
+      if (!y || !m || !d) return fecha;
+      const ms = new Date(y, m - 1, d).getTime() - new Date(1899, 11, 30).getTime();
+      return Math.floor(ms / 86400000);
+    };
     await saveSheet('Tabla', ['Fecha', 'Cobro', 'Sobrante', 'Reverso', 'Reintegros', 'Neto'],
-      t.map(r => {
-        const parts = r.fecha.split('-');
-        const fechaFmt = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : r.fecha;
-        return [fechaFmt, r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto];
-      }));
+      t.map(r => [toSerial(r.fecha), r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
     await saveSheet('Cobros', ['Fecha', 'Monto', 'Producto', 'Forma', 'Credito', 'Mora', 'Periodo', 'Banco', 'Tipo', 'Documento'],
-      todos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || '']));
+      todos.map(r => [
+        String(r.fecha), r.monto, r.producto, r.forma, r.credito,
+        r.mora,  // mora se guarda normal, el formato RAW en saveSheet evita el error
+        r.periodo, r.banco, r.tipo, r.documento || ''
+      ]));
   }
 
   async function saveSobrantesData(todos: SobranteRow[]) {
@@ -384,6 +392,8 @@ export default function Dashboard() {
   }
 
   async function recalcTabla(revs: SimpleRow[], reis: SimpleRow[]) {
+    // Solo recalcular si hay datos reales en la tabla
+    if (tabla.length === 0 || tabla.every(r => r.cobro === 0 && r.reverso === 0)) return;
     const nt = tabla.map(r => ({
       ...r,
       reverso: revs.filter(x => x.fecha === r.fecha).reduce((a, x) => a + x.monto, 0),

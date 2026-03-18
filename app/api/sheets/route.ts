@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       if (rows.length > 0) {
         await sheets.spreadsheets.values.update({
           spreadsheetId: id, range: sheet + '!A1',
-          valueInputOption: 'USER_ENTERED', requestBody: { values: rows },
+          valueInputOption: 'RAW', requestBody: { values: rows },
         });
       }
     }
@@ -172,9 +172,9 @@ export async function POST(req: NextRequest) {
       requests.push({ updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: headerRowIndex + 1 } }, fields: 'gridProperties.frozenRowCount' } });
 
       // ══════════════════════════════════
-      // BLOQUE 1: TOTALES — alineado con el header de la tabla
+      // BLOQUE 1: TOTALES — empieza una fila debajo del header (fila 2 si header es fila 1)
       const colH = 7; // columna H
-      const b1Start = headerRowIndex; // misma fila que el header
+      const b1Start = headerRowIndex + 1;
 
       // Merge H-I para el título
       requests.push({ mergeCells: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
@@ -204,8 +204,8 @@ export async function POST(req: NextRequest) {
       requests.push({ updateBorders: { range: { sheetId, startRowIndex: b1Start, endRowIndex: b1Start + 7, startColumnIndex: colH, endColumnIndex: colH + 2 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.3, green: 0.4, blue: 0.6 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.75, green: 0.8, blue: 0.9 } }, innerVertical: { style: 'SOLID', color: { red: 0.75, green: 0.8, blue: 0.9 } } } });
 
       // ══════════════════════════════════
-      // BLOQUE 2: INDICADORES — una fila de separación abajo del bloque 1
-      const b2Start = b1Start + 8;
+      // BLOQUE 2: INDICADORES — sin separación, justo debajo del bloque 1
+      const b2Start = b1Start + 7; // header(1) + 6 filas datos = 7
 
       // Merge H-I para el título
       requests.push({ mergeCells: { range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 1, startColumnIndex: colH, endColumnIndex: colH + 2 }, mergeType: 'MERGE_ALL' } });
@@ -229,6 +229,16 @@ export async function POST(req: NextRequest) {
       });
 
       requests.push({ updateBorders: { range: { sheetId, startRowIndex: b2Start, endRowIndex: b2Start + 3, startColumnIndex: colH, endColumnIndex: colH + 2 }, top: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, bottom: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, left: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, right: { style: 'SOLID_MEDIUM', color: { red: 0.2, green: 0.45, blue: 0.25 } }, innerHorizontal: { style: 'SOLID', color: { red: 0.7, green: 0.85, blue: 0.75 } }, innerVertical: { style: 'SOLID', color: { red: 0.7, green: 0.85, blue: 0.75 } } } });
+
+      // Limpiar celdas con formato que puedan quedar debajo de los bloques
+      requests.push({
+        repeatCell: {
+          range: { sheetId, startRowIndex: b2Start + 3, endRowIndex: b2Start + 8, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false }, borders: {} } },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        }
+      });
+      requests.push({ unmergeCells: { range: { sheetId, startRowIndex: b2Start + 3, endRowIndex: b2Start + 8, startColumnIndex: colH, endColumnIndex: colH + 2 } } });
 
       // Ancho cols H e I
       requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: colH, endIndex: colH + 1 }, properties: { pixelSize: 150 }, fields: 'pixelSize' } });
