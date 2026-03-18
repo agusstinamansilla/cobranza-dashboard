@@ -119,11 +119,12 @@ export async function POST(req: NextRequest) {
       const requests: any[] = [];
 
       // Limpiar formato previo
-      // Borrar filas basura antes del header
-      if (headerRowIndex > 0) {
+      // Borrar filas basura SIEMPRE entre header y primera fila de datos (fila 2 con % Cobro)
+      await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A2:F2` });
+      if (headerRowIndex > 1) {
         await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A2:F${headerRowIndex}` });
       }
-      // Borrar filas basura después de los datos reales (% Cobro, Pendiente, Vto, etc)
+      // Borrar filas basura después de los datos reales
       await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: `Tabla!A${lastDataRow + 1}:F${lastDataRow + 10}` });
       requests.push({
         repeatCell: {
@@ -253,11 +254,18 @@ export async function POST(req: NextRequest) {
       requests.push({
         repeatCell: {
           range: { sheetId, startRowIndex: b2Start + 3, endRowIndex: b2Start + 8, startColumnIndex: colH, endColumnIndex: colH + 2 },
-          cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false }, borders: {} } },
+          cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false } } },
           fields: 'userEnteredFormat(backgroundColor,textFormat)',
         }
       });
       requests.push({ unmergeCells: { range: { sheetId, startRowIndex: b2Start + 3, endRowIndex: b2Start + 8, startColumnIndex: colH, endColumnIndex: colH + 2 } } });
+      requests.push({
+        updateBorders: {
+          range: { sheetId, startRowIndex: b2Start + 3, endRowIndex: b2Start + 8, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          top: { style: 'NONE' }, bottom: { style: 'NONE' }, left: { style: 'NONE' }, right: { style: 'NONE' },
+          innerHorizontal: { style: 'NONE' }, innerVertical: { style: 'NONE' },
+        }
+      });
 
       // Ancho cols H e I
       requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: colH, endIndex: colH + 1 }, properties: { pixelSize: 150 }, fields: 'pixelSize' } });

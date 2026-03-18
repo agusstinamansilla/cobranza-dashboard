@@ -56,8 +56,13 @@ export default function Dashboard() {
             if (typeof raw === 'number' || /^\d{5}$/.test(raw)) {
               // Serial de Excel → yyyy-mm-dd
               const serial = Number(raw);
-              const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
-              fecha = d.toISOString().slice(0, 10);
+              // Usar fecha local, no UTC, para evitar el problema de timezone
+              const totalDays = serial - 25569;
+              const utcMs = totalDays * 86400 * 1000;
+              const d = new Date(utcMs);
+              // Ajustar a fecha local
+              const localDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+              fecha = localDate.toISOString().slice(0, 10);
             } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
               const [dd, mm, yyyy] = raw.split('/');
               fecha = `${yyyy}-${mm}-${dd}`;
