@@ -108,14 +108,31 @@ export default function Dashboard() {
   }
 
   async function saveTabla(t: TablaRow[]) {
-    const toSerial = (fecha: string) => {
-      const [y, m, d] = fecha.split('-').map(Number);
-      if (!y || !m || !d) return fecha;
-      const ms = new Date(y, m - 1, d).getTime() - new Date(1899, 11, 30).getTime();
-      return Math.floor(ms / 86400000);
-    };
     await saveSheet('Tabla', ['Fecha', 'Cobro', 'Sobrante', 'Reverso', 'Reintegros', 'Neto'],
-      t.map(r => [toSerial(r.fecha), r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto]));
+      t.map(r => {
+        const [y, m, d] = r.fecha.split('-');
+        return [`${d}/${m}/${y}`, r.cobro, r.sobrante, r.reverso, r.reintegros, r.neto];
+      }));
+  }
+
+  async function appendCobros(nuevos: CobroRow[]) {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'append',
+          sheet: 'Cobros',
+          rows: nuevos.map(r => [String(r.fecha), r.monto, r.producto, r.forma, r.credito, r.mora, r.periodo, r.banco, r.tipo, r.documento || '']),
+        }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+    } catch (e: any) {
+      setError('Error al guardar cobros: ' + e.message);
+    }
+    setSaving(false);
   }
 
   async function saveCobrosData(todos: CobroRow[]) {
@@ -348,14 +365,18 @@ export default function Dashboard() {
         ? tabla.map(r => r.fecha === fecha ? newRow : r)
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-      // Cobros: ACUMULAR los nuevos a los existentes de otras fechas + misma fecha
+      // Cobros: ACUMULAR — solo guardar los NUEVOS en Sheets (append, no reescribir todo)
       const todosCobros = [...cobros, ...newCobros];
       setCobros(todosCobros);
       setTabla(newTabla);
 
       await saveSobrantesData(newSobrantes);
-      await saveCobrosData(todosCobros);
+      // Solo appendear los nuevos cobros del día, no reescribir los 4900+
+      if (newCobros.length > 0) {
+        await appendCobros(newCobros);
+      }
       await saveTabla(newTabla);
+      setError(`✓ ${newCobros.length} cobros guardados`);
 
       setActiveTab('detalle');
       setFechaSel(fecha);

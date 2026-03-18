@@ -53,9 +53,10 @@ export async function POST(req: NextRequest) {
     if (action === 'clear_and_write') {
       await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: sheet + '!A1:Z' });
       if (rows.length > 0) {
+        const inputOption = sheet === 'Tabla' ? 'USER_ENTERED' : 'RAW';
         await sheets.spreadsheets.values.update({
           spreadsheetId: id, range: sheet + '!A1',
-          valueInputOption: 'RAW', requestBody: { values: rows },
+          valueInputOption: inputOption, requestBody: { values: rows },
         });
       }
     }
@@ -268,7 +269,7 @@ export async function POST(req: NextRequest) {
       });
 
       // Ancho cols H e I
-      requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: colH, endIndex: colH + 1 }, properties: { pixelSize: 150 }, fields: 'pixelSize' } });
+      requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: colH, endIndex: colH + 1 }, properties: { pixelSize: 185 }, fields: 'pixelSize' } });
       requests.push({ updateDimensionProperties: { range: { sheetId, dimension: 'COLUMNS', startIndex: colH + 1, endIndex: colH + 2 }, properties: { pixelSize: 150 }, fields: 'pixelSize' } });
 
       await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
