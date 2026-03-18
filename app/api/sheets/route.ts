@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       // Limpiar TODO el formato en cols H-I antes de redibujar
       requests.push({
         repeatCell: {
-          range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: colH, endColumnIndex: colH + 2 },
+          range: { sheetId, startRowIndex: 0, endRowIndex: lastDataRow + 20, startColumnIndex: 7, endColumnIndex: 9 },
           cell: { userEnteredFormat: { backgroundColor: { red: 1, green: 1, blue: 1 }, textFormat: { bold: false, fontSize: 10, foregroundColor: { red: 0.2, green: 0.2, blue: 0.2 } } } },
           fields: 'userEnteredFormat(backgroundColor,textFormat)',
         }
