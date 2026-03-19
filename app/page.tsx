@@ -312,33 +312,31 @@ export default function Dashboard() {
       const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
       alert('DEBUG filas 16-20:\n' + debugRows);
 
-// ─── Extraer créditos e importes (CORREGIDO PARA EL ARCHIVO 12-03) ───
+// ─── Extraer créditos e importes (CORREGIDO PARA ARCHIVO 12-03) ───
 const newCobros: CobroRow[] = [];
       
-// Empezamos en la fila 16 para saltar el encabezado
+// Empezamos en la fila 16 porque antes hay encabezados del banco
 for (let i = 16; i < rows.length; i++) {
   const row = rows[i];
   if (!row) continue;
 
-  // 1. El texto del crédito en el 12-03 está en la columna L (índice 11)
-  // Pero usamos un find por si el banco mueve la columna
-  const celdaCredito = row[11] || row[12] || ""; 
-  const textoDeuda = String(celdaCredito);
+  // 1. Buscamos el texto que contiene el crédito (suele estar en col 11 o 12)
+  const textoCelda = String(row[11] || row[12] || "");
 
-  // 2. Buscamos la palabra "Créd" o "Cred"
-  if (textoDeuda.toLowerCase().includes('cred') || textoDeuda.toLowerCase().includes('créd')) {
+  // 2. Si la celda menciona "Créd" o "Cred", extraemos el número
+  if (textoCelda.toLowerCase().includes('cred') || textoCelda.toLowerCase().includes('créd')) {
     
-    // Regex mejorado para capturar el número después de Créd.Nº
-    const m = textoDeuda.match(/Créd\.Nº\s*(\d+)/i) || textoDeuda.match(/(\d{4,6})/);
+    // Este Regex saca el número sin importar si dice "Créd.Nº" o "Cred No"
+    const m = textoCelda.match(/(\d{4,6})/); 
     const cred = m ? parseInt(m[1]) : 0;
 
     // 3. El importe en el archivo 12-03 está en la columna R (índice 17)
-    // Si no está ahí, probamos en la 19 por si es el formato viejo
+    // Tu código viejo buscaba en el 19, por eso daba 0.
     const impRaw = row[17] || row[19] || 0;
     const imp = typeof impRaw === 'number' ? impRaw : parseFloat(String(impRaw).replace(',', '.')) || 0;
 
     if (cred && imp > 0) {
-      // 4. Cruzamos con la base (baseMap)
+      // 4. Cruzamos con la base de 11.000 filas (baseMap)
       const base = baseMap.get(cred);
       
       newCobros.push({
