@@ -314,8 +314,10 @@ export default function Dashboard() {
         const row = rows[i];
         if (!row) continue;
         const deuda = row[12];
-        if (typeof deuda === 'string' && (deuda.includes('réd') || deuda.includes('réd') || deuda.toLowerCase().includes('créd'))) {
-          const m = deuda.match(/[Cc]r[eé]d\.N[ºo°]\s*(\d+)/i);
+        const deudaLower = typeof deuda === 'string' ? deuda.toLowerCase() : '';
+        if (deudaLower.includes('créd') || deudaLower.includes('cred')) {
+          const m = deuda.match(/[Cc]r[eéÉ]d\.N[ºo°]\s*(\d+)/i) || deuda.match(/(\d{4,6})\s+de\s+CASA/i);
+          const cred = m ? +m[1] : 0;
           const cred = m ? +m[1] : 0;
           const imp = typeof row[19] === 'number' ? row[19] : 0;
           if (cred && imp > 0) {
