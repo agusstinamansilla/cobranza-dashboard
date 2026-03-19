@@ -318,7 +318,6 @@ export default function Dashboard() {
         if (deudaLower.includes('créd') || deudaLower.includes('cred')) {
           const m = deuda.match(/[Cc]r[eéÉ]d\.N[ºo°]\s*(\d+)/i) || deuda.match(/(\d{4,6})\s+de\s+CASA/i);
           const cred = m ? +m[1] : 0;
-          const cred = m ? +m[1] : 0;
           const imp = typeof row[19] === 'number' ? row[19] : 0;
           if (cred && imp > 0) {
             // Cruzar con la base
