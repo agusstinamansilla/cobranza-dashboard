@@ -308,6 +308,10 @@ export default function Dashboard() {
 
       const sob = declarado > 0 && totalReal > 0 ? Math.max(declarado - totalReal, 0) : 0;
 
+      // DEBUG: ver qué lee XLSX.js en las primeras filas de datos
+      const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
+      alert('DEBUG filas 16-20:\n' + debugRows);
+
       // Extraer créditos e importes (filas desde índice 16, excluye la última)
       const newCobros: CobroRow[] = [];
       for (let i = 16; i < rows.length - 1; i++) {
