@@ -312,35 +312,51 @@ export default function Dashboard() {
       const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
       alert('DEBUG filas 16-20:\n' + debugRows);
 
-      // Extraer créditos e importes (filas desde índice 16, excluye la última)
-      const newCobros: CobroRow[] = [];
-      for (let i = 16; i < rows.length - 1; i++) {
-        const row = rows[i];
-        if (!row) continue;
-        const deuda = row[12];
-        const deudaLower = typeof deuda === 'string' ? deuda.toLowerCase() : '';
-        if (deudaLower.includes('créd') || deudaLower.includes('cred')) {
-          const m = deuda.match(/[Cc]r[eéÉ]d\.N[ºo°]\s*(\d+)/i) || deuda.match(/(\d{4,6})\s+de\s+CASA/i);
-          const cred = m ? +m[1] : 0;
-          const imp = typeof row[19] === 'number' ? row[19] : 0;
-          if (cred && imp > 0) {
-            // Cruzar con la base
-            const base = baseMap.get(cred);
-            newCobros.push({
-              fecha,
-              monto: imp,
-              credito: cred,
-              producto: base?.producto || '',
-              forma: 'COMERCIO',
-              mora: base?.mora || '',
-              periodo: base?.periodo || '',
-              banco: base?.banco || '',
-              tipo: base?.tipo || '',
-              documento: base?.documento || 0,
-            });
-          }
-        }
-      }
+// ─── Extraer créditos e importes (CORREGIDO PARA EL ARCHIVO 12-03) ───
+const newCobros: CobroRow[] = [];
+      
+// Empezamos en la fila 16 para saltar el encabezado
+for (let i = 16; i < rows.length; i++) {
+  const row = rows[i];
+  if (!row) continue;
+
+  // 1. El texto del crédito en el 12-03 está en la columna L (índice 11)
+  // Pero usamos un find por si el banco mueve la columna
+  const celdaCredito = row[11] || row[12] || ""; 
+  const textoDeuda = String(celdaCredito);
+
+  // 2. Buscamos la palabra "Créd" o "Cred"
+  if (textoDeuda.toLowerCase().includes('cred') || textoDeuda.toLowerCase().includes('créd')) {
+    
+    // Regex mejorado para capturar el número después de Créd.Nº
+    const m = textoDeuda.match(/Créd\.Nº\s*(\d+)/i) || textoDeuda.match(/(\d{4,6})/);
+    const cred = m ? parseInt(m[1]) : 0;
+
+    // 3. El importe en el archivo 12-03 está en la columna R (índice 17)
+    // Si no está ahí, probamos en la 19 por si es el formato viejo
+    const impRaw = row[17] || row[19] || 0;
+    const imp = typeof impRaw === 'number' ? impRaw : parseFloat(String(impRaw).replace(',', '.')) || 0;
+
+    if (cred && imp > 0) {
+      // 4. Cruzamos con la base (baseMap)
+      const base = baseMap.get(cred);
+      
+      newCobros.push({
+        fecha,
+        monto: imp,
+        credito: cred,
+        producto: base?.producto || 'S/D',
+        forma: 'COMERCIO',
+        mora: base?.mora || 'S/D',
+        periodo: base?.periodo || 'No',
+        banco: base?.banco || 'S/D',
+        tipo: base?.tipo || 'S/D',
+        documento: base?.documento || 0,
+      });
+    }
+  }
+}
+// ─── Fin del bloque corregido ───
 
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
@@ -901,3 +917,4 @@ export default function Dashboard() {
     </div>
   );
 }
+a
