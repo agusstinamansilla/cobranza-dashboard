@@ -314,8 +314,8 @@ export default function Dashboard() {
         const row = rows[i];
         if (!row) continue;
         const deuda = row[12];
-        if (typeof deuda === 'string' && deuda.includes('réd')) {
-          const m = deuda.match(/réd\.N[ºo°]\s*(\d+)/i);
+        if (typeof deuda === 'string' && (deuda.includes('réd') || deuda.includes('réd') || deuda.toLowerCase().includes('créd'))) {
+          const m = deuda.match(/[Cc]r[eé]d\.N[ºo°]\s*(\d+)/i);
           const cred = m ? +m[1] : 0;
           const imp = typeof row[19] === 'number' ? row[19] : 0;
           if (cred && imp > 0) {
