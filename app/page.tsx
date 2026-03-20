@@ -315,7 +315,7 @@ export default function Dashboard() {
         if (!row) continue;
         const deuda = row[12];
         if (!deuda || typeof deuda !== 'string') continue;
-        const m = deuda.match(/Créd\.Nº\s*(\d+)\s*de\s*CASA/);
+        const m = deuda.match(/(\d{4,6})\s+de\s+CASA/i);
         if (!m) continue;
         const cred = +m[1];
         const imp = typeof row[19] === 'number' ? row[19] : 0;
