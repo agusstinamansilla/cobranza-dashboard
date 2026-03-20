@@ -294,68 +294,59 @@ export default function Dashboard() {
         }
       }
 
-      // Cobro real: buscar desde la última fila hacia arriba en columna T (índice 19)
+      // Cobro real: buscar en las últimas 3 filas el primer número > 1000 en cualquier columna
       let totalReal = 0;
-      for (let i = rows.length - 1; i >= 0; i--) {
+      for (let i = rows.length - 1; i >= Math.max(0, rows.length - 3); i--) {
         const row = rows[i];
         if (!row) continue;
-        const val = row[19];
-        if (typeof val === 'number' && val > 100) {
-          totalReal = val;
-          break;
-        }
+        const found = (row as any[]).find((v: any) => typeof v === 'number' && v > 1000);
+        if (found) { totalReal = found; break; }
       }
 
       const sob = declarado > 0 && totalReal > 0 ? Math.max(declarado - totalReal, 0) : 0;
 
-      // DEBUG: ver qué lee XLSX.js en las primeras filas de datos
-      const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
-      alert('DEBUG filas 16-20:\n' + debugRows);
-
-// ─── Extraer créditos e importes (CORREGIDO PARA ARCHIVO 12-03) ───
+// ─── NUEVO BLOQUE CORREGIDO ───
 const newCobros: CobroRow[] = [];
-      
-// Empezamos en la fila 16 porque antes hay encabezados del banco
+
 for (let i = 16; i < rows.length; i++) {
   const row = rows[i];
   if (!row) continue;
 
-  // 1. Buscamos el texto que contiene el crédito (suele estar en col 11 o 12)
-  const textoCelda = String(row[11] || row[12] || "");
-
-  // 2. Si la celda menciona "Créd" o "Cred", extraemos el número
-  if (textoCelda.toLowerCase().includes('cred') || textoCelda.toLowerCase().includes('créd')) {
-    
-    // Este Regex saca el número sin importar si dice "Créd.Nº" o "Cred No"
-    const m = textoCelda.match(/(\d{4,6})/); 
-    const cred = m ? parseInt(m[1]) : 0;
-
-    // 3. El importe en el archivo 12-03 está en la columna R (índice 17)
-    // Tu código viejo buscaba en el 19, por eso daba 0.
-    const impRaw = row[17] || row[19] || 0;
-    const imp = typeof impRaw === 'number' ? impRaw : parseFloat(String(impRaw).replace(',', '.')) || 0;
-
-    if (cred && imp > 0) {
-      // 4. Cruzamos con la base de 11.000 filas (baseMap)
-      const base = baseMap.get(cred);
-      
-      newCobros.push({
-        fecha,
-        monto: imp,
-        credito: cred,
-        producto: base?.producto || 'S/D',
-        forma: 'COMERCIO',
-        mora: base?.mora || 'S/D',
-        periodo: base?.periodo || 'No',
-        banco: base?.banco || 'S/D',
-        tipo: base?.tipo || 'S/D',
-        documento: base?.documento || 0,
-      });
+  // Buscamos el crédito en CUALQUIER columna de la fila
+  let textoDeuda = '';
+  for (let j = 0; j < row.length; j++) {
+    const v = String(row[j] || '');
+    if (v.toLowerCase().includes('cred') || v.toLowerCase().includes('réd')) {
+      textoDeuda = v;
+      break;
     }
   }
-}
-// ─── Fin del bloque corregido ───
 
+  if (!textoDeuda) continue;
+
+  const m = textoDeuda.match(/(\d{4,6})/);
+  const cred = m ? +m[1] : 0;
+
+  // Buscamos el importe: primera columna con número > 0 en esa misma fila
+  const imp = (row as any[]).find((v: any) => typeof v === 'number' && v > 0) || 0;
+
+  if (cred && imp > 0) {
+    const base = baseMap.get(cred);
+    newCobros.push({
+      fecha,
+      monto: imp,
+      credito: cred,
+      producto: base?.producto || 'S/D',
+      forma: 'COMERCIO',
+      mora: base?.mora || 'S/D',
+      periodo: base?.periodo || 'No',
+      banco: base?.banco || 'S/D',
+      tipo: base?.tipo || 'S/D',
+      documento: base?.documento || 0,
+    });
+  }
+}
+// ─── FIN DEL BLOQUE NUEVO ───
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
 
