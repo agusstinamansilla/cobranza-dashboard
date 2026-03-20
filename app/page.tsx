@@ -53,19 +53,15 @@ export default function Dashboard() {
             let fecha = '';
             const raw = row[0];
             if (!raw) return null;
-            if (typeof raw === 'number' || /^\d{5}$/.test(raw)) {
-              // Serial de Excel → yyyy-mm-dd
-              const serial = Number(raw);
-              // Usar fecha local, no UTC, para evitar el problema de timezone
-              const totalDays = serial - 25569;
-              const utcMs = totalDays * 86400 * 1000;
-              const d = new Date(utcMs);
-              // Ajustar a fecha local
-              const localDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-              fecha = localDate.toISOString().slice(0, 10);
+            if (typeof raw === 'number') {
+              const totalDays = raw - 25569;
+              const d = new Date(totalDays * 86400 * 1000);
+              fecha = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
             } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
               const [dd, mm, yyyy] = raw.split('/');
               fecha = `${yyyy}-${mm}-${dd}`;
+            } else if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+              fecha = raw.slice(0,10);
             } else {
               fecha = raw;
             }
@@ -369,7 +365,7 @@ export default function Dashboard() {
         sobrante: sobTotalDia,
         reverso: rev,
         reintegros: rei,
-        neto: cobroTotal - rev + rei,
+        neto: cobroTotal + sobTotalDia - rev - rei,
       };
 
       const newTabla = existente
@@ -435,9 +431,7 @@ export default function Dashboard() {
       ...r,
       reverso: revs.filter(x => x.fecha === r.fecha).reduce((a, x) => a + x.monto, 0),
       reintegros: reis.filter(x => x.fecha === r.fecha).reduce((a, x) => a + x.monto, 0),
-      neto: r.cobro
-        - revs.filter(x => x.fecha === r.fecha).reduce((a, x) => a + x.monto, 0)
-        + reis.filter(x => x.fecha === r.fecha).reduce((a, x) => a + x.monto, 0),
+      neto: r.cobro + (r.sobrante||0) - revs.filter(x=>x.fecha===r.fecha).reduce((a,x)=>a+x.monto,0) - reis.filter(x=>x.fecha===r.fecha).reduce((a,x)=>a+x.monto,0),
     }));
     setTabla(nt);
     await saveTabla(nt);
