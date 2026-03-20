@@ -308,37 +308,29 @@ export default function Dashboard() {
 
       const sob = declarado > 0 && totalReal > 0 ? Math.max(declarado - totalReal, 0) : 0;
 
-      // DEBUG: ver qué lee XLSX.js en las primeras filas de datos
-      const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
-      alert('DEBUG filas 16-20:\n' + debugRows);
-
       // Extraer créditos e importes (filas desde índice 16, excluye la última)
       const newCobros: CobroRow[] = [];
       for (let i = 16; i < rows.length - 1; i++) {
         const row = rows[i];
         if (!row) continue;
         const deuda = row[12];
-        const deudaLower = typeof deuda === 'string' ? deuda.toLowerCase() : '';
-        if (deudaLower.includes('créd') || deudaLower.includes('cred')) {
-          const m = deuda.match(/[Cc]r[eéÉ]d\.N[ºo°]\s*(\d+)/i) || deuda.match(/(\d{4,6})\s+de\s+CASA/i);
-          const cred = m ? +m[1] : 0;
-          const imp = typeof row[19] === 'number' ? row[19] : 0;
-          if (cred && imp > 0) {
-            // Cruzar con la base
-            const base = baseMap.get(cred);
-            newCobros.push({
-              fecha,
-              monto: imp,
-              credito: cred,
-              producto: base?.producto || '',
-              forma: 'COMERCIO',
-              mora: base?.mora || '',
-              periodo: base?.periodo || '',
-              banco: base?.banco || '',
-              tipo: base?.tipo || '',
-              documento: base?.documento || 0,
-            });
-          }
+        if (!deuda || typeof deuda !== 'string') continue;
+        const m = deuda.match(/Créd\.Nº\s*(\d+)\s*de\s*CASA/);
+        if (!m) continue;
+        const cred = +m[1];
+        const imp = typeof row[19] === 'number' ? row[19] : 0;
+        if (cred && imp > 0) {
+          const base = baseMap.get(cred);
+          newCobros.push({
+            fecha, monto: imp, credito: cred,
+            producto: base?.producto || '',
+            forma: 'COMERCIO',
+            mora: base?.mora || '',
+            periodo: base?.periodo || '',
+            banco: base?.banco || '',
+            tipo: base?.tipo || '',
+            documento: base?.documento || 0,
+          });
         }
       }
 
