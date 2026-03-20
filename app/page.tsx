@@ -313,13 +313,26 @@ export default function Dashboard() {
       for (let i = 16; i < rows.length - 1; i++) {
         const row = rows[i];
         if (!row) continue;
-        const deuda = row[12];
-        console.log('fila', i, 'deuda:', JSON.stringify(deuda), 'tipo:', typeof deuda);
-        if (!deuda || typeof deuda !== 'string') continue;
+        // Buscar en TODAS las columnas de la fila el texto con el crédito
+        let deuda = '';
+        let colDeuda = -1;
+        for (let j = 0; j < row.length; j++) {
+          const v = row[j];
+          if (typeof v === 'string' && v.includes('CASA')) {
+            deuda = v;
+            colDeuda = j;
+            break;
+          }
+        }
+        if (!deuda) continue;
         const m = deuda.match(/(\d{4,6})\s+de\s+CASA/i);
         if (!m) continue;
         const cred = +m[1];
-        const imp = typeof row[19] === 'number' ? row[19] : 0;
+        // Buscar importe: primer número > 0 después de la columna de deuda
+        let imp = 0;
+        for (let j = colDeuda + 1; j < row.length; j++) {
+          if (typeof row[j] === 'number' && row[j] > 0) { imp = row[j]; break; }
+        }
         if (cred && imp > 0) {
           const base = baseMap.get(cred);
           newCobros.push({
