@@ -294,59 +294,54 @@ export default function Dashboard() {
         }
       }
 
-      // Cobro real: buscar en las últimas 3 filas el primer número > 1000 en cualquier columna
+      // Cobro real: buscar desde la última fila hacia arriba en columna T (índice 19)
       let totalReal = 0;
-      for (let i = rows.length - 1; i >= Math.max(0, rows.length - 3); i--) {
+      for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i];
         if (!row) continue;
-        const found = (row as any[]).find((v: any) => typeof v === 'number' && v > 1000);
-        if (found) { totalReal = found; break; }
+        const val = row[19];
+        if (typeof val === 'number' && val > 100) {
+          totalReal = val;
+          break;
+        }
       }
 
       const sob = declarado > 0 && totalReal > 0 ? Math.max(declarado - totalReal, 0) : 0;
 
-// ─── NUEVO BLOQUE CORREGIDO ───
-const newCobros: CobroRow[] = [];
+      // DEBUG: ver qué lee XLSX.js en las primeras filas de datos
+      const debugRows = rows.slice(15, 20).map((r: any) => r ? `col12=${JSON.stringify(r[12])} col19=${r[19]}` : 'null').join('\n');
+      alert('DEBUG filas 16-20:\n' + debugRows);
 
-for (let i = 16; i < rows.length; i++) {
-  const row = rows[i];
-  if (!row) continue;
+      // Extraer créditos e importes (filas desde índice 16, excluye la última)
+      const newCobros: CobroRow[] = [];
+      for (let i = 16; i < rows.length - 1; i++) {
+        const row = rows[i];
+        if (!row) continue;
+        const deuda = row[12];
+        const deudaLower = typeof deuda === 'string' ? deuda.toLowerCase() : '';
+        if (deudaLower.includes('créd') || deudaLower.includes('cred')) {
+          const m = deuda.match(/[Cc]r[eéÉ]d\.N[ºo°]\s*(\d+)/i) || deuda.match(/(\d{4,6})\s+de\s+CASA/i);
+          const cred = m ? +m[1] : 0;
+          const imp = typeof row[19] === 'number' ? row[19] : 0;
+          if (cred && imp > 0) {
+            // Cruzar con la base
+            const base = baseMap.get(cred);
+            newCobros.push({
+              fecha,
+              monto: imp,
+              credito: cred,
+              producto: base?.producto || '',
+              forma: 'COMERCIO',
+              mora: base?.mora || '',
+              periodo: base?.periodo || '',
+              banco: base?.banco || '',
+              tipo: base?.tipo || '',
+              documento: base?.documento || 0,
+            });
+          }
+        }
+      }
 
-  // Buscamos el crédito en CUALQUIER columna de la fila
-  let textoDeuda = '';
-  for (let j = 0; j < row.length; j++) {
-    const v = String(row[j] || '');
-    if (v.toLowerCase().includes('cred') || v.toLowerCase().includes('réd')) {
-      textoDeuda = v;
-      break;
-    }
-  }
-
-  if (!textoDeuda) continue;
-
-  const m = textoDeuda.match(/(\d{4,6})/);
-  const cred = m ? +m[1] : 0;
-
-  // Buscamos el importe: primera columna con número > 0 en esa misma fila
-  const imp = (row as any[]).find((v: any) => typeof v === 'number' && v > 0) || 0;
-
-  if (cred && imp > 0) {
-    const base = baseMap.get(cred);
-    newCobros.push({
-      fecha,
-      monto: imp,
-      credito: cred,
-      producto: base?.producto || 'S/D',
-      forma: 'COMERCIO',
-      mora: base?.mora || 'S/D',
-      periodo: base?.periodo || 'No',
-      banco: base?.banco || 'S/D',
-      tipo: base?.tipo || 'S/D',
-      documento: base?.documento || 0,
-    });
-  }
-}
-// ─── FIN DEL BLOQUE NUEVO ───
       const rev = reversos.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
       const rei = reintegros.filter(r => r.fecha === fecha).reduce((a, r) => a + r.monto, 0);
 
@@ -906,4 +901,3 @@ for (let i = 16; i < rows.length; i++) {
     </div>
   );
 }
-a
