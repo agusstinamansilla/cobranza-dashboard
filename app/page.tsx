@@ -314,6 +314,7 @@ export default function Dashboard() {
         const row = rows[i];
         if (!row) continue;
         const deuda = row[12];
+        console.log('fila', i, 'deuda:', JSON.stringify(deuda), 'tipo:', typeof deuda);
         if (!deuda || typeof deuda !== 'string') continue;
         const m = deuda.match(/(\d{4,6})\s+de\s+CASA/i);
         if (!m) continue;
