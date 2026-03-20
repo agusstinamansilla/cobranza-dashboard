@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (action === 'clear_and_write') {
       await sheets.spreadsheets.values.clear({ spreadsheetId: id, range: sheet + '!A1:Z' });
       if (rows.length > 0) {
-        const inputOption = sheet === 'Tabla' ? 'USER_ENTERED' : 'RAW';
+        const inputOption = 'RAW';
         await sheets.spreadsheets.values.update({
           spreadsheetId: id, range: sheet + '!A1',
           valueInputOption: inputOption, requestBody: { values: rows },
