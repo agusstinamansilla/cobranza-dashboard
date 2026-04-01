@@ -353,7 +353,6 @@ export default function Dashboard() {
         neto: cobroTotal + sobTotalDia - rev - rei,
       };
 
-      if (tabla.length === 0) { setError('ERROR: recargá la página antes de subir archivos'); return; }
       const newTabla = existente
         ? tabla.map(r => r.fecha === fecha ? newRow : r)
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
