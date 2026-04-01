@@ -50,21 +50,9 @@ export default function Dashboard() {
         setTabla(d.tabla.slice(1)
           .filter((row: string[]) => row[0] && row[0] !== 'Fecha' && !String(row[0]).includes('%'))
           .map((row: string[]) => {
-            let fecha = '';
             const raw = row[0];
             if (!raw) return null;
-            if (typeof raw === 'number') {
-              const totalDays = raw - 25569;
-              const d = new Date(totalDays * 86400 * 1000);
-              fecha = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-            } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
-              const [dd, mm, yyyy] = raw.split('/');
-              fecha = `${yyyy}-${mm}-${dd}`;
-            } else if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-              fecha = raw.slice(0,10);
-            } else {
-              fecha = raw;
-            }
+            const fecha = raw;
             return { fecha, cobro: +row[1] || 0, sobrante: +row[2] || 0, reverso: +row[3] || 0, reintegros: +row[4] || 0, neto: +row[5] || 0 };
           }).filter(Boolean) as TablaRow[]);
       }
@@ -365,6 +353,7 @@ export default function Dashboard() {
         neto: cobroTotal + sobTotalDia - rev - rei,
       };
 
+      if (tabla.length === 0) { setError('ERROR: recargá la página antes de subir archivos'); return; }
       const newTabla = existente
         ? tabla.map(r => r.fecha === fecha ? newRow : r)
         : [...tabla, newRow].sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -663,18 +652,6 @@ export default function Dashboard() {
               {baseMap.size > 0 && (
                 <p className="mt-3 text-xs text-center text-green-600 font-medium">✓ {baseMap.size} créditos cargados</p>
               )}
-            </div>
-
-            {/* Carga histórica (solo primer mes) */}
-            <div className="bg-white border border-dashed border-gray-200 rounded-xl p-5 shadow-sm md:col-span-2">
-              <h3 className="font-semibold text-gray-800 mb-1">Carga histórica inicial <span className="text-xs font-normal text-gray-400 ml-2">(solo primer mes)</span></h3>
-              <p className="text-xs text-gray-400 mb-4">Subí el archivo con los datos históricos del mes (ej: <code className="bg-gray-100 px-1 rounded">Base_Marzo_2026.xlsx</code>). Requiere hojas <code className="bg-gray-100 px-1 rounded">Tabla</code> y <code className="bg-gray-100 px-1 rounded">Cobro</code>. <strong className="text-red-500">Reemplaza todo lo que hay en Sheets.</strong></p>
-              <label className="flex flex-col items-center justify-center border-2 border-dashed border-orange-200 rounded-xl p-6 cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-all">
-                <span className="text-4xl mb-3">📋</span>
-                <span className="text-sm font-medium text-gray-700">Elegí el archivo histórico del mes</span>
-                <span className="text-xs text-gray-400 mt-1">.xlsx con hojas Tabla y Cobro</span>
-                <input type="file" accept=".xlsx" className="hidden" onChange={handleBaseMes} />
-              </label>
             </div>
 
             {/* Estado de carga */}
